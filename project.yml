@@ -1,0 +1,42 @@
+name: TeslaSubDash
+options:
+  bundleIdPrefix: com.kimhyeonho
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: com.kimhyeonho.teslasubdash
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    IPHONEOS_DEPLOYMENT_TARGET: 17.0
+    TARGETED_DEVICE_FAMILY: "2"
+    SWIFT_VERSION: 5.0
+targets:
+  TeslaSubDash:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources
+    info:
+      path: Config/Info.plist
+      properties:
+        BackendBaseURL: http://127.0.0.1:8787
+        NSLocalNetworkUsageDescription: "로컬 네트워크의 텔레메트리 서버(Mac 백엔드)에 연결해 차량 정보를 표시하기 위해 필요합니다."
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        CFBundleURLTypes:
+          - CFBundleURLName: com.kimhyeonho.teslasubdash
+            CFBundleURLSchemes:
+              - myapp
+    settings:
+      base:
+        PRODUCT_NAME: TeslaSubDash
+        INFOPLIST_FILE: Config/Info.plist
+schemes:
+  TeslaSubDash:
+    build:
+      targets:
+        TeslaSubDash: all
+    run:
+      config: Debug
+    archive:
+      config: Release

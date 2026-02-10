@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tesla OAuth Callback</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --card: rgba(255, 255, 255, 0.08);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.65);
+        --border: rgba(255, 255, 255, 0.14);
+        --accent: #3aa0ff;
+        --danger: #ff5c5c;
+      }
+      html, body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        font-family: ui-rounded, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        background: radial-gradient(1200px 900px at 30% 20%, #1f2b55 0%, rgba(31, 43, 85, 0) 55%),
+          radial-gradient(900px 800px at 80% 70%, #0d6b5d 0%, rgba(13, 107, 93, 0) 50%),
+          var(--bg);
+        color: var(--text);
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+      .wrap {
+        width: min(920px, 100%);
+      }
+      .title {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: 0.2px;
+        margin: 0 0 10px;
+      }
+      .subtitle {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+        backdrop-filter: blur(10px);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      .label {
+        color: var(--muted);
+        font-weight: 700;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 6px;
+      }
+      .value {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 14px;
+        line-height: 1.45;
+        padding: 12px;
+        border-radius: 14px;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        word-break: break-all;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      button {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.10);
+        color: var(--text);
+        padding: 10px 12px;
+        border-radius: 14px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      button.primary {
+        background: rgba(58, 160, 255, 0.20);
+        border-color: rgba(58, 160, 255, 0.35);
+      }
+      .hint {
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 14px;
+        margin: 0;
+      }
+      .danger {
+        color: var(--danger);
+        font-weight: 800;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 2px 6px;
+        border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <h1 class="title">Tesla OAuth Callback</h1>
+      <p class="subtitle">Copy the <b>code</b> value and exchange it locally to get a user token.</p>
+
+      <section class="card grid">
+        <div>
+          <div class="label">Status</div>
+          <p id="status" class="hint">Loading...</p>
+        </div>
+
+        <div>
+          <div class="label">Open App</div>
+          <p class="hint">
+            If you're on iPad, tap <b>Open App</b>. If nothing happens, use the manual copy step below.
+          </p>
+          <div class="row" style="margin-top: 10px">
+            <button class="primary" id="openApp">Open App</button>
+          </div>
+          <div id="deepLink" class="value" style="margin-top: 10px">(none)</div>
+        </div>
+
+        <div>
+          <div class="label">code</div>
+          <div id="code" class="value">(none)</div>
+          <div class="row" style="margin-top: 10px">
+            <button class="primary" id="copy">Copy code</button>
+            <button id="copyUrl">Copy full URL</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="label">state</div>
+          <div id="state" class="value">(none)</div>
+        </div>
+
+        <div>
+          <div class="label">Next step</div>
+          <p class="hint">
+            Run this on your Mac:
+            <code>npm run tesla:oauth:exchange -- &lt;PASTE_CODE&gt;</code>
+          </p>
+          <p class="hint">
+            If you see an error, paste it to Codex.
+          </p>
+        </div>
+
+        <div>
+          <div class="label">error</div>
+          <div id="error" class="value">(none)</div>
+        </div>
+      </section>
+
+      <p class="hint" style="margin-top: 16px">
+        Security note: this page is only meant to display a short-lived authorization code.
+      </p>
+    </main>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      const code = params.get('code');
+      const state = params.get('state');
+      const error = params.get('error') || params.get('error_description');
+      const deepLink = code ? `myapp://oauth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || '')}` : null;
+
+      const statusEl = document.getElementById('status');
+      const codeEl = document.getElementById('code');
+      const stateEl = document.getElementById('state');
+      const errorEl = document.getElementById('error');
+      const deepLinkEl = document.getElementById('deepLink');
+      const openBtn = document.getElementById('openApp');
+
+      if (error) {
+        statusEl.innerHTML = '<span class="danger">ERROR</span> See error below.';
+        errorEl.textContent = error;
+      } else if (code) {
+        statusEl.textContent = 'OK. Authorization code received.';
+      } else {
+        statusEl.textContent = 'No code found in URL.';
+      }
+
+      codeEl.textContent = code || '(none)';
+      stateEl.textContent = state || '(none)';
+      deepLinkEl.textContent = deepLink || '(none)';
+
+      openBtn.disabled = !deepLink;
+      openBtn.addEventListener('click', () => {
+        if (!deepLink) {
+          alert('No code found.');
+          return;
+        }
+        location.href = deepLink;
+      });
+
+      if (deepLink && !error) {
+        setTimeout(() => {
+          location.href = deepLink;
+        }, 700);
+      }
+
+      const copyText = async (text) => {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      document.getElementById('copy').addEventListener('click', async () => {
+        if (!code) {
+          alert('No code to copy.');
+          return;
+        }
+        const ok = await copyText(code);
+        alert(ok ? 'Copied.' : 'Copy failed.');
+      });
+
+      document.getElementById('copyUrl').addEventListener('click', async () => {
+        const ok = await copyText(location.href);
+        alert(ok ? 'Copied.' : 'Copy failed.');
+      });
+    </script>
+  </body>
+</html>

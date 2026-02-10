@@ -1,0 +1,480 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		01C96B7EEEE3F67E4D3C5C29 /* TeslaFleetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F30CAEDD100EC9C4055FCE0 /* TeslaFleetService.swift */; };
+		1A6D285D1F4D532821274FD9 /* ConnectionGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06164552DF1EBD7CD4EF4111 /* ConnectionGuideView.swift */; };
+		1AB860A43273F4A1128C2644 /* LaunchFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7741868A85F0FA41AF65E6B4 /* LaunchFlags.swift */; };
+		36BC3591F1FC7F06756FCB21 /* CarModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F4C4760A5113F261C24E767 /* CarModeView.swift */; };
+		45B531D9ADFFBC7DB88604DE /* TelemetryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 829589DA6E76B3A9036D08B1 /* TelemetryService.swift */; };
+		4AEF27A0EBD72819A6DF45BD /* KakaoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A9D94B3BD7DA500BA5165E /* KakaoModels.swift */; };
+		550CB6A74A3F8C572716992C /* StartCarModeIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F22EFAEB3758BFB1C9194DE8 /* StartCarModeIntent.swift */; };
+		60EA07C3189E5E355FEBCB7E /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6EC9BD11A04724D55E2B3F0 /* NetworkMonitor.swift */; };
+		62F437D4456D0D00E9650400 /* InAppBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB264DFCB57C20455335C9B /* InAppBrowserView.swift */; };
+		660EC10F919B0B3BFD384A50 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4250873E7BD861D65E2917B /* AppConfig.swift */; };
+		6933477D9DF059622508D0E6 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8560AC6868EF83D30A6EF1AA /* KeychainStore.swift */; };
+		747C3BE2EBFB733C21673D09 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88B5DFC236A2691B272DA08E /* AppRouter.swift */; };
+		7F6D01E29D1BA659F75C9C5F /* KakaoAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5D91A3074B6677B99BBE787 /* KakaoAPIClient.swift */; };
+		8252B282191F08BC2DDB73DC /* TelemetryMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D230CF14E63AAF3BDA087E /* TelemetryMapView.swift */; };
+		920518A0F45993B7C89E7456 /* TeslaSubDashApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1456C0DA89455E6A643CFBC /* TeslaSubDashApp.swift */; };
+		922EE2BC4E79D64F3881A653 /* ButtonStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0157BB63A3CE2C02A1F30F0 /* ButtonStyles.swift */; };
+		93EB67D3C7EE8CE3993C8FEC /* KakaoRouteMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E43CD7C295F26783BBF091 /* KakaoRouteMapView.swift */; };
+		9BF2886A24D6D417AC9944B0 /* CarModeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBE9227CEF973C2492345CB /* CarModeViewModel.swift */; };
+		A6AB836612F901E8504938F2 /* KakaoConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9708C18D853495843C8CDA7 /* KakaoConfigStore.swift */; };
+		A871DD4050FB6A6FC813D2A2 /* TelemetryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB103A71ACD5F871DC64655A /* TelemetryModels.swift */; };
+		B460560CB35221AA48282F5C /* KakaoNavigationPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87424F3EEA70776C81721FB7 /* KakaoNavigationPaneView.swift */; };
+		B598D78FC0B19C6D5AF78163 /* TeslaConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB808D279D7016FA6D2C2D01 /* TeslaConstants.swift */; };
+		C9E69697C68829FBD4AD2BE9 /* TeslaAuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927ED7021DC82A1F0FED5F21 /* TeslaAuthStore.swift */; };
+		D13E3F4EC11BC62FB0D80B2B /* RootRouterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 392056DA8DDF8AFC7E238BF9 /* RootRouterView.swift */; };
+		DF326BD775803422DF19DEF0 /* KakaoNavigationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD155AC8C2082C1009B34E00 /* KakaoNavigationViewModel.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		06164552DF1EBD7CD4EF4111 /* ConnectionGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionGuideView.swift; sourceTree = "<group>"; };
+		1F30CAEDD100EC9C4055FCE0 /* TeslaFleetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeslaFleetService.swift; sourceTree = "<group>"; };
+		392056DA8DDF8AFC7E238BF9 /* RootRouterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootRouterView.swift; sourceTree = "<group>"; };
+		5BB264DFCB57C20455335C9B /* InAppBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InAppBrowserView.swift; sourceTree = "<group>"; };
+		6F4C4760A5113F261C24E767 /* CarModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarModeView.swift; sourceTree = "<group>"; };
+		7741868A85F0FA41AF65E6B4 /* LaunchFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchFlags.swift; sourceTree = "<group>"; };
+		77A9D94B3BD7DA500BA5165E /* KakaoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoModels.swift; sourceTree = "<group>"; };
+		829589DA6E76B3A9036D08B1 /* TelemetryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryService.swift; sourceTree = "<group>"; };
+		8560AC6868EF83D30A6EF1AA /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		87424F3EEA70776C81721FB7 /* KakaoNavigationPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoNavigationPaneView.swift; sourceTree = "<group>"; };
+		88B5DFC236A2691B272DA08E /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
+		927ED7021DC82A1F0FED5F21 /* TeslaAuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeslaAuthStore.swift; sourceTree = "<group>"; };
+		A0157BB63A3CE2C02A1F30F0 /* ButtonStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonStyles.swift; sourceTree = "<group>"; };
+		A4250873E7BD861D65E2917B /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		AB103A71ACD5F871DC64655A /* TelemetryModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryModels.swift; sourceTree = "<group>"; };
+		B1E43CD7C295F26783BBF091 /* KakaoRouteMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoRouteMapView.swift; sourceTree = "<group>"; };
+		B6D230CF14E63AAF3BDA087E /* TelemetryMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryMapView.swift; sourceTree = "<group>"; };
+		BB808D279D7016FA6D2C2D01 /* TeslaConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeslaConstants.swift; sourceTree = "<group>"; };
+		BD155AC8C2082C1009B34E00 /* KakaoNavigationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoNavigationViewModel.swift; sourceTree = "<group>"; };
+		C76239345E94D85CD5A3BCC2 /* TeslaSubDash.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TeslaSubDash.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D1456C0DA89455E6A643CFBC /* TeslaSubDashApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeslaSubDashApp.swift; sourceTree = "<group>"; };
+		D5D91A3074B6677B99BBE787 /* KakaoAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoAPIClient.swift; sourceTree = "<group>"; };
+		D9708C18D853495843C8CDA7 /* KakaoConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoConfigStore.swift; sourceTree = "<group>"; };
+		EBBE9227CEF973C2492345CB /* CarModeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarModeViewModel.swift; sourceTree = "<group>"; };
+		F22EFAEB3758BFB1C9194DE8 /* StartCarModeIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartCarModeIntent.swift; sourceTree = "<group>"; };
+		F6EC9BD11A04724D55E2B3F0 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0804B694A663FCFBE165F030 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				88B5DFC236A2691B272DA08E /* AppRouter.swift */,
+				7741868A85F0FA41AF65E6B4 /* LaunchFlags.swift */,
+				392056DA8DDF8AFC7E238BF9 /* RootRouterView.swift */,
+				D1456C0DA89455E6A643CFBC /* TeslaSubDashApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		0A39E36E7BD7C31F03AB4E11 /* Common */ = {
+			isa = PBXGroup;
+			children = (
+				A0157BB63A3CE2C02A1F30F0 /* ButtonStyles.swift */,
+			);
+			path = Common;
+			sourceTree = "<group>";
+		};
+		160F38EE15E19D6C55A9B476 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C76239345E94D85CD5A3BCC2 /* TeslaSubDash.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3F8E28EB0E55D9A0A277B1EA /* CarMode */ = {
+			isa = PBXGroup;
+			children = (
+				6F4C4760A5113F261C24E767 /* CarModeView.swift */,
+				EBBE9227CEF973C2492345CB /* CarModeViewModel.swift */,
+				B6D230CF14E63AAF3BDA087E /* TelemetryMapView.swift */,
+			);
+			path = CarMode;
+			sourceTree = "<group>";
+		};
+		62475487A3F475FBD6F70E5E /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				3F8E28EB0E55D9A0A277B1EA /* CarMode */,
+				0A39E36E7BD7C31F03AB4E11 /* Common */,
+				F2470AFE4F61C191CBAB1ECB /* Connection */,
+				BFB7CE3912FA3674142185AD /* Navi */,
+				66082F15BA4B2E5F9473761C /* Shared */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		66082F15BA4B2E5F9473761C /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A4250873E7BD861D65E2917B /* AppConfig.swift */,
+				5BB264DFCB57C20455335C9B /* InAppBrowserView.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		6BE1D3C4FF0B8504C12C2CD7 = {
+			isa = PBXGroup;
+			children = (
+				925CFF1EB43E4932AFF7A05A /* Sources */,
+				160F38EE15E19D6C55A9B476 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7746B60E2E03502D2D6E0297 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				F6EC9BD11A04724D55E2B3F0 /* NetworkMonitor.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		925CFF1EB43E4932AFF7A05A /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				0804B694A663FCFBE165F030 /* App */,
+				7746B60E2E03502D2D6E0297 /* Core */,
+				62475487A3F475FBD6F70E5E /* Features */,
+				CB2A39EE6F4C344734415AA4 /* Intents */,
+				99CD7B7B162F2FAD64960F94 /* Kakao */,
+				F6E4A5E5E089CD1A09DB3DA1 /* Telemetry */,
+				F3CAE8AFB3CC93D4931086F3 /* Tesla */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		99CD7B7B162F2FAD64960F94 /* Kakao */ = {
+			isa = PBXGroup;
+			children = (
+				D5D91A3074B6677B99BBE787 /* KakaoAPIClient.swift */,
+				D9708C18D853495843C8CDA7 /* KakaoConfigStore.swift */,
+				77A9D94B3BD7DA500BA5165E /* KakaoModels.swift */,
+			);
+			path = Kakao;
+			sourceTree = "<group>";
+		};
+		BFB7CE3912FA3674142185AD /* Navi */ = {
+			isa = PBXGroup;
+			children = (
+				87424F3EEA70776C81721FB7 /* KakaoNavigationPaneView.swift */,
+				BD155AC8C2082C1009B34E00 /* KakaoNavigationViewModel.swift */,
+				B1E43CD7C295F26783BBF091 /* KakaoRouteMapView.swift */,
+			);
+			path = Navi;
+			sourceTree = "<group>";
+		};
+		CB2A39EE6F4C344734415AA4 /* Intents */ = {
+			isa = PBXGroup;
+			children = (
+				F22EFAEB3758BFB1C9194DE8 /* StartCarModeIntent.swift */,
+			);
+			path = Intents;
+			sourceTree = "<group>";
+		};
+		F2470AFE4F61C191CBAB1ECB /* Connection */ = {
+			isa = PBXGroup;
+			children = (
+				06164552DF1EBD7CD4EF4111 /* ConnectionGuideView.swift */,
+			);
+			path = Connection;
+			sourceTree = "<group>";
+		};
+		F3CAE8AFB3CC93D4931086F3 /* Tesla */ = {
+			isa = PBXGroup;
+			children = (
+				8560AC6868EF83D30A6EF1AA /* KeychainStore.swift */,
+				927ED7021DC82A1F0FED5F21 /* TeslaAuthStore.swift */,
+				BB808D279D7016FA6D2C2D01 /* TeslaConstants.swift */,
+				1F30CAEDD100EC9C4055FCE0 /* TeslaFleetService.swift */,
+			);
+			path = Tesla;
+			sourceTree = "<group>";
+		};
+		F6E4A5E5E089CD1A09DB3DA1 /* Telemetry */ = {
+			isa = PBXGroup;
+			children = (
+				AB103A71ACD5F871DC64655A /* TelemetryModels.swift */,
+				829589DA6E76B3A9036D08B1 /* TelemetryService.swift */,
+			);
+			path = Telemetry;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1B34ADA2B531E0C35480C203 /* TeslaSubDash */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 880193066B9507F8C9E049E7 /* Build configuration list for PBXNativeTarget "TeslaSubDash" */;
+			buildPhases = (
+				5C3DCDB59B493C14F4E7F026 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TeslaSubDash;
+			packageProductDependencies = (
+			);
+			productName = TeslaSubDash;
+			productReference = C76239345E94D85CD5A3BCC2 /* TeslaSubDash.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D5AED28A2708C882AB86125D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = A82373217FE9123548E7E941 /* Build configuration list for PBXProject "TeslaSubDash" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 6BE1D3C4FF0B8504C12C2CD7;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1B34ADA2B531E0C35480C203 /* TeslaSubDash */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5C3DCDB59B493C14F4E7F026 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				660EC10F919B0B3BFD384A50 /* AppConfig.swift in Sources */,
+				747C3BE2EBFB733C21673D09 /* AppRouter.swift in Sources */,
+				922EE2BC4E79D64F3881A653 /* ButtonStyles.swift in Sources */,
+				36BC3591F1FC7F06756FCB21 /* CarModeView.swift in Sources */,
+				9BF2886A24D6D417AC9944B0 /* CarModeViewModel.swift in Sources */,
+				1A6D285D1F4D532821274FD9 /* ConnectionGuideView.swift in Sources */,
+				62F437D4456D0D00E9650400 /* InAppBrowserView.swift in Sources */,
+				7F6D01E29D1BA659F75C9C5F /* KakaoAPIClient.swift in Sources */,
+				A6AB836612F901E8504938F2 /* KakaoConfigStore.swift in Sources */,
+				4AEF27A0EBD72819A6DF45BD /* KakaoModels.swift in Sources */,
+				B460560CB35221AA48282F5C /* KakaoNavigationPaneView.swift in Sources */,
+				DF326BD775803422DF19DEF0 /* KakaoNavigationViewModel.swift in Sources */,
+				93EB67D3C7EE8CE3993C8FEC /* KakaoRouteMapView.swift in Sources */,
+				6933477D9DF059622508D0E6 /* KeychainStore.swift in Sources */,
+				1AB860A43273F4A1128C2644 /* LaunchFlags.swift in Sources */,
+				60EA07C3189E5E355FEBCB7E /* NetworkMonitor.swift in Sources */,
+				D13E3F4EC11BC62FB0D80B2B /* RootRouterView.swift in Sources */,
+				550CB6A74A3F8C572716992C /* StartCarModeIntent.swift in Sources */,
+				8252B282191F08BC2DDB73DC /* TelemetryMapView.swift in Sources */,
+				A871DD4050FB6A6FC813D2A2 /* TelemetryModels.swift in Sources */,
+				45B531D9ADFFBC7DB88604DE /* TelemetryService.swift in Sources */,
+				C9E69697C68829FBD4AD2BE9 /* TeslaAuthStore.swift in Sources */,
+				B598D78FC0B19C6D5AF78163 /* TeslaConstants.swift in Sources */,
+				01C96B7EEEE3F67E4D3C5C29 /* TeslaFleetService.swift in Sources */,
+				920518A0F45993B7C89E7456 /* TeslaSubDashApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3C583DBCD65EFD87E11802B9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Config/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_NAME = TeslaSubDash;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		76D051EAA061E4FE33B94396 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Config/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_NAME = TeslaSubDash;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		E619852BC3DA8D00EC4C261A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kimhyeonho.teslasubdash;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
+		F8DA757A7E2A6242EA78EB07 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kimhyeonho.teslasubdash;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		880193066B9507F8C9E049E7 /* Build configuration list for PBXNativeTarget "TeslaSubDash" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3C583DBCD65EFD87E11802B9 /* Debug */,
+				76D051EAA061E4FE33B94396 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A82373217FE9123548E7E941 /* Build configuration list for PBXProject "TeslaSubDash" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F8DA757A7E2A6242EA78EB07 /* Debug */,
+				E619852BC3DA8D00EC4C261A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = D5AED28A2708C882AB86125D /* Project object */;
+}

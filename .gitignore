@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+.derivedData/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.xcresult
+*.xcarchive
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env / Secrets
+.env
+.env.*
+backend/.env
+backend/.env.*
+
+# Tesla key material (keep local only)
+backend/keys/
+
+# Cloudflare / Wrangler
+.wrangler/
