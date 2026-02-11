@@ -9,8 +9,11 @@ struct ConnectionGuideView: View {
     @EnvironmentObject private var teslaAuth: TeslaAuthStore
     @EnvironmentObject private var kakaoConfig: KakaoConfigStore
     @State private var isTestingTesla = false
+    @State private var isTestingSnapshot = false
     @State private var showManualLogin = false
     @State private var showKakaoKey = false
+    @State private var showAdvancedTesla = false
+    @State private var showTeslaDiagnostics = false
 
     var body: some View {
         ZStack {
@@ -144,6 +147,32 @@ struct ConnectionGuideView: View {
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
 
+            DisclosureGroup("Advanced (Audience / Fleet API Base)", isExpanded: $showAdvancedTesla) {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("Audience", text: $teslaAuth.audience)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+
+                    TextField("Fleet API Base", text: $teslaAuth.fleetApiBase)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+
+                    Text("Scopes requested: \(TeslaConstants.scopes)")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 8)
+            }
+            .font(.system(size: 16, weight: .bold, design: .rounded))
+            .foregroundStyle(.secondary)
+
             DisclosureGroup("Manual Finish (if Open App fails)", isExpanded: $showManualLogin) {
                 VStack(alignment: .leading, spacing: 10) {
                     TextField("OAuth Code", text: $teslaAuth.manualCode)
@@ -170,32 +199,58 @@ struct ConnectionGuideView: View {
             .font(.system(size: 16, weight: .bold, design: .rounded))
             .foregroundStyle(.secondary)
 
-            HStack(spacing: 10) {
-                Button("Save") {
-                    teslaAuth.saveConfig()
-                }
-                .buttonStyle(SecondaryCarButtonStyle())
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    Button("Save") {
+                        teslaAuth.saveConfig()
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle())
 
-                Button(teslaAuth.isBusy ? "Working..." : "Connect") {
-                    teslaAuth.saveConfig()
-                    guard let url = teslaAuth.makeAuthorizeURL() else { return }
-                    openURL(url)
-                }
-                .disabled(teslaAuth.isBusy)
-                .buttonStyle(SecondaryCarButtonStyle())
+                    Button(teslaAuth.isBusy ? "Working..." : "Connect") {
+                        teslaAuth.saveConfig()
+                        guard let url = teslaAuth.makeAuthorizeURL() else { return }
+                        openURL(url)
+                    }
+                    .disabled(teslaAuth.isBusy)
+                    .buttonStyle(SecondaryCarButtonStyle())
 
-                Button(isTestingTesla ? "Testing..." : "Test") {
-                    testTeslaConnection()
+                    Button("Sign Out") {
+                        teslaAuth.signOut()
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle())
                 }
-                .disabled(isTestingTesla)
-                .buttonStyle(SecondaryCarButtonStyle())
 
-                Button("Sign Out") {
-                    teslaAuth.signOut()
+                HStack(spacing: 10) {
+                    Button(isTestingTesla ? "Testing..." : "Test Vehicles") {
+                        testTeslaConnection()
+                    }
+                    .disabled(isTestingTesla)
+                    .buttonStyle(SecondaryCarButtonStyle())
+
+                    Button(isTestingSnapshot ? "Testing..." : "Test Snapshot") {
+                        testTeslaSnapshot()
+                    }
+                    .disabled(isTestingSnapshot)
+                    .buttonStyle(SecondaryCarButtonStyle())
                 }
-                .buttonStyle(SecondaryCarButtonStyle())
             }
-            .frame(height: 84)
+            .frame(minHeight: 84)
+
+            DisclosureGroup("Diagnostics (token / claims)", isExpanded: $showTeslaDiagnostics) {
+                let diag = teslaAuth.getTokenDiagnostics()
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Access token: \(diag.accessTokenMasked)")
+                    Text("Refresh token: \(diag.refreshTokenPresent ? "present" : "missing")")
+                    Text("ExpiresAt: \(diag.expiresAtISO8601.isEmpty ? "(missing)" : diag.expiresAtISO8601)")
+                    Text("JWT aud: \(diag.jwtAudience)")
+                    Text("JWT scopes: \(diag.jwtScopes)")
+                }
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.top, 8)
+            }
+            .font(.system(size: 16, weight: .bold, design: .rounded))
+            .foregroundStyle(.secondary)
 
             if let message = teslaAuth.statusMessage {
                 Text(message)
@@ -273,6 +328,27 @@ struct ConnectionGuideView: View {
             do {
                 let count = try await TeslaFleetService.shared.testVehiclesCount()
                 teslaAuth.statusMessage = "Fleet OK. Vehicles: \(count)"
+            } catch {
+                teslaAuth.statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func testTeslaSnapshot() {
+        guard !isTestingSnapshot else { return }
+        isTestingSnapshot = true
+        teslaAuth.statusMessage = nil
+
+        Task {
+            defer { isTestingSnapshot = false }
+            do {
+                let snap = try await TeslaFleetService.shared.fetchLatestSnapshot()
+                let loc = snap.vehicle.location
+                if loc.isValid {
+                    teslaAuth.statusMessage = String(format: "vehicle_data OK. Location: %.5f, %.5f", loc.lat, loc.lon)
+                } else {
+                    teslaAuth.statusMessage = "vehicle_data OK, but location is missing (0,0). Try Wake + Refresh."
+                }
             } catch {
                 teslaAuth.statusMessage = error.localizedDescription
             }

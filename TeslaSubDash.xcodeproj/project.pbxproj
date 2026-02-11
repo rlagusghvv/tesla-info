@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -54,7 +54,7 @@
 		B6D230CF14E63AAF3BDA087E /* TelemetryMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryMapView.swift; sourceTree = "<group>"; };
 		BB808D279D7016FA6D2C2D01 /* TeslaConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeslaConstants.swift; sourceTree = "<group>"; };
 		BD155AC8C2082C1009B34E00 /* KakaoNavigationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoNavigationViewModel.swift; sourceTree = "<group>"; };
-		C76239345E94D85CD5A3BCC2 /* TeslaSubDash.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TeslaSubDash.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C76239345E94D85CD5A3BCC2 /* TeslaSubDash.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TeslaSubDash.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D1456C0DA89455E6A643CFBC /* TeslaSubDashApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeslaSubDashApp.swift; sourceTree = "<group>"; };
 		D5D91A3074B6677B99BBE787 /* KakaoAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoAPIClient.swift; sourceTree = "<group>"; };
 		D9708C18D853495843C8CDA7 /* KakaoConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoConfigStore.swift; sourceTree = "<group>"; };
@@ -247,7 +247,6 @@
 			);
 			mainGroup = 6BE1D3C4FF0B8504C12C2CD7;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -297,6 +296,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = FCHA9MNH8C;
 				INFOPLIST_FILE = Config/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -314,6 +314,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = FCHA9MNH8C;
 				INFOPLIST_FILE = Config/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (

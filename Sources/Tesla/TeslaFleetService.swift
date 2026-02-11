@@ -222,8 +222,16 @@ enum TeslaFleetError: LocalizedError {
             return "No vehicles found for this Tesla account."
         case .misconfigured(let message):
             return message
-        case .unauthorized:
+        case .unauthorized(let details):
+            #if DEBUG
+            let trimmed = details.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return "Tesla authorization failed. Please sign in again."
+            }
+            return "Tesla authorization failed. Please sign in again.\n\nDetails: \(trimmed)"
+            #else
             return "Tesla authorization failed. Please sign in again."
+            #endif
         case .rateLimited(let seconds):
             if let seconds {
                 return "Rate limited by Tesla API. Retry after \(seconds)s."

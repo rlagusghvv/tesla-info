@@ -68,3 +68,9 @@
 - 프리즈가 재현되면:
   - 폴리라인 maxPoints를 더 낮추기(예: 300)
   - 경로 표시를 "확정 버튼" 이후에만 렌더링하도록 단계 분리
+
+## (신규) 인증/권한 트러블슈팅
+- `Account` 화면에서:
+  - `Test Vehicles`: `/api/1/vehicles` 호출 확인
+  - `Test Snapshot`: `/vehicle_data` 호출 확인(여기서 Unauthorized가 나면 scope/audience 문제일 확률이 높음)
+  - `Diagnostics`에서 JWT `aud`/`scopes`를 확인 가능 (Debug 빌드)

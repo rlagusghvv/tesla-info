@@ -30,6 +30,14 @@ final class TeslaAuthStore: ObservableObject {
         loadTokenState()
     }
 
+    struct TokenDiagnostics {
+        let accessTokenMasked: String
+        let refreshTokenPresent: Bool
+        let expiresAtISO8601: String
+        let jwtAudience: String
+        let jwtScopes: String
+    }
+
     func loadConfig() {
         clientId = KeychainStore.getString(Keys.clientId) ?? ""
         clientSecret = KeychainStore.getString(Keys.clientSecret) ?? ""
@@ -59,6 +67,26 @@ final class TeslaAuthStore: ObservableObject {
         KeychainStore.delete(Keys.selectedVehicleId)
         loadTokenState()
         statusMessage = "Signed out."
+    }
+
+    func getTokenDiagnostics() -> TokenDiagnostics {
+        let access = KeychainStore.getString(Keys.accessToken) ?? ""
+        let refresh = KeychainStore.getString(Keys.refreshToken) ?? ""
+        let expiresAt = KeychainStore.getString(Keys.expiresAt) ?? ""
+
+        let masked = mask(access)
+        let claims = decodeJWTPayload(access)
+
+        let aud = normalizeJWTValue(claims?["aud"])
+        let scp = normalizeJWTValue(claims?["scp"]) ?? normalizeJWTValue(claims?["scope"])
+
+        return TokenDiagnostics(
+            accessTokenMasked: masked,
+            refreshTokenPresent: !refresh.isEmpty,
+            expiresAtISO8601: expiresAt,
+            jwtAudience: aud ?? "(unknown)",
+            jwtScopes: scp ?? "(unknown)"
+        )
     }
 
     func makeAuthorizeURL() -> URL? {
@@ -281,6 +309,42 @@ final class TeslaAuthStore: ObservableObject {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    private func mask(_ token: String) -> String {
+        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count >= 16 else { return "(short/empty)" }
+        return String(t.prefix(8)) + "..." + String(t.suffix(6))
+    }
+
+    private func decodeJWTPayload(_ token: String) -> [String: Any]? {
+        let parts = token.split(separator: ".")
+        guard parts.count >= 2 else { return nil }
+        let payload = String(parts[1])
+        guard let data = base64URLDecode(payload) else { return nil }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return json
+    }
+
+    private func normalizeJWTValue(_ value: Any?) -> String? {
+        guard let value else { return nil }
+        if let s = value as? String { return s }
+        if let n = value as? NSNumber { return n.stringValue }
+        if let a = value as? [Any] {
+            let parts = a.compactMap { normalizeJWTValue($0) }
+            if parts.isEmpty { return nil }
+            return parts.joined(separator: " ")
+        }
+        return nil
+    }
+
+    private func base64URLDecode(_ input: String) -> Data? {
+        var s = input.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let mod = s.count % 4
+        if mod != 0 {
+            s.append(String(repeating: "=", count: 4 - mod))
+        }
+        return Data(base64Encoded: s)
     }
 
     private enum Keys {
