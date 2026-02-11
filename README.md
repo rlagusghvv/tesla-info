@@ -150,6 +150,12 @@ If you are using TeslaMate and want one-step runtime sync too:
 npm run tesla:oauth:exchange:sync -- "<FULL_CALLBACK_URL_OR_CODE>"
 ```
 
+For long-running TeslaMate deployments, refresh and re-sync tokens periodically:
+
+```bash
+npm run tesla:oauth:refresh:sync
+```
+
 Verify token and vehicle list:
 
 ```bash

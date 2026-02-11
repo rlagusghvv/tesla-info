@@ -86,15 +86,100 @@ struct CarModeView: View {
         GeometryReader { proxy in
             // Keep the center pane dominant (map/media), especially on iPad mini.
             // All vehicle info + controls live in a single side bar.
-            let sideWidth = max(240, min(280, proxy.size.width * 0.30))
+            let sideWidth = max(198, min(230, proxy.size.width * 0.24))
 
             HStack(spacing: 14) {
-                centerPanel
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if showSetupSheet {
+                    suspendedCenterPanel
+                } else {
+                    centerPanel
+                }
 
-                sidePanel
-                    .frame(width: sideWidth)
+                Group {
+                    if showSetupSheet {
+                        suspendedSidePanel
+                    } else {
+                        sidePanel
+                    }
+                }
+                .frame(width: sideWidth)
+
+                Spacer(minLength: 0)
             }
+        }
+    }
+
+    private var suspendedCenterPanel: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                CenterModeSegmentedControl(selection: $viewModel.centerMode)
+                    .frame(maxWidth: .infinity)
+                    .layoutPriority(1)
+
+                headerIconButton(systemImage: "person.crop.circle.fill") {}
+                    .disabled(true)
+            }
+
+            VStack(spacing: 10) {
+                Image(systemName: "pause.circle.fill")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.9))
+
+                Text("Setup Mode")
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Text("Map and polling are paused for stability while Account is open.")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+            )
+
+            Text("Source: \(viewModel.snapshot.source)")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.75))
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+        )
+    }
+
+    private var suspendedSidePanel: some View {
+        VStack(spacing: 12) {
+            card {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(viewModel.snapshot.vehicle.displayName)
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+
+                    Text("Account panel active")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+            }
+
+            card {
+                Text("Controls are temporarily paused.")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+
+            Spacer(minLength: 0)
         }
     }
 
@@ -276,7 +361,7 @@ struct CarModeView: View {
                 card {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(viewModel.snapshot.vehicle.displayName)
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
 
                         Text(viewModel.snapshot.vehicle.onlineState.uppercased())
@@ -310,6 +395,8 @@ struct CarModeView: View {
                         Text(message)
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundStyle(.red.opacity(0.95))
+                            .lineLimit(6)
+                            .truncationMode(.tail)
                     }
                 }
 
@@ -320,7 +407,7 @@ struct CarModeView: View {
                 } label: {
                     Label("Exit Car Mode", systemImage: "arrowshape.turn.up.backward.fill")
                 }
-                .buttonStyle(SecondaryCarButtonStyle(fontSize: 20, height: 64, cornerRadius: 18))
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 17, height: 54, cornerRadius: 14))
 
                 if let commandMessage = viewModel.commandMessage {
                     card {
@@ -352,7 +439,7 @@ struct CarModeView: View {
             } label: {
                 Label("Account", systemImage: "person.crop.circle")
             }
-            .buttonStyle(SecondaryCarButtonStyle(fontSize: 20, height: 64, cornerRadius: 18))
+            .buttonStyle(SecondaryCarButtonStyle(fontSize: 17, height: 54, cornerRadius: 14))
         }
     }
 
@@ -376,7 +463,7 @@ struct CarModeView: View {
         case .regular:
             return PrimaryCarButtonStyle(fontSize: 22, height: 80, cornerRadius: 20)
         case .compact:
-            return PrimaryCarButtonStyle(fontSize: 20, height: 64, cornerRadius: 18)
+            return PrimaryCarButtonStyle(fontSize: 17, height: 54, cornerRadius: 14)
         }
     }
 
@@ -389,12 +476,12 @@ struct CarModeView: View {
                 .foregroundStyle(.white)
                 .fontWeight(.bold)
         }
-        .font(.system(size: 19, weight: .semibold, design: .rounded))
+        .font(.system(size: 16, weight: .semibold, design: .rounded))
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .padding(14)
+            .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)

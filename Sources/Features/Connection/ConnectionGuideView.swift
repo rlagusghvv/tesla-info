@@ -13,14 +13,18 @@ struct ConnectionGuideView: View {
     @State private var isTestingFleetStatus = false
     @State private var showManualLogin = false
     @State private var showKakaoKey = false
+    @State private var showKakaoJSKey = false
     @State private var showAdvancedTesla = false
     @State private var showTeslaDiagnostics = false
     @State private var selectedTelemetrySource: TelemetrySource = AppConfig.telemetrySource
     @State private var backendURLText: String = AppConfig.backendBaseURLString
+    @State private var backendAPITokenText: String = AppConfig.backendAPIToken
+    @State private var showBackendToken = false
     @State private var isTestingBackend = false
     @State private var isDetectingBackend = false
 
     private let quickBackendCandidates: [String] = [
+        "http://192.168.0.30:8787",
         "http://172.20.10.5:8787",
         "http://172.20.10.3:8787",
         "http://127.0.0.1:8787"
@@ -107,6 +111,7 @@ struct ConnectionGuideView: View {
         .onAppear {
             selectedTelemetrySource = AppConfig.telemetrySource
             backendURLText = AppConfig.backendBaseURLString
+            backendAPITokenText = AppConfig.backendAPIToken
         }
     }
 
@@ -163,6 +168,26 @@ struct ConnectionGuideView: View {
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
 
+                HStack(spacing: 10) {
+                    Group {
+                        if showBackendToken {
+                            TextField("Backend API Token", text: $backendAPITokenText)
+                        } else {
+                            SecureField("Backend API Token", text: $backendAPITokenText)
+                        }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                    Button(showBackendToken ? "Hide" : "Show") {
+                        showBackendToken.toggle()
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+                    .frame(width: 90)
+                }
+
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(quickBackendCandidates, id: \.self) { candidate in
@@ -181,6 +206,11 @@ struct ConnectionGuideView: View {
                     }
                     .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
 
+                    Button("Save Token") {
+                        saveBackendToken()
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+
                     Button(isTestingBackend ? "Testing..." : "Test Backend") {
                         testBackendConnection()
                     }
@@ -194,7 +224,7 @@ struct ConnectionGuideView: View {
                 .disabled(isDetectingBackend)
                 .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
 
-                Text("Use this mode for TeslaMate or local simulator backend.")
+                Text("Use this mode for TeslaMate/local backend. If your backend enforces auth, set Backend API Token.")
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
             } else {
@@ -378,7 +408,7 @@ struct ConnectionGuideView: View {
                 Circle()
                     .fill(kakaoConfig.restAPIKey.isEmpty ? Color.red : Color.green)
                     .frame(width: 10, height: 10)
-                Text(kakaoConfig.restAPIKey.isEmpty ? "API Key Missing" : "API Key Set")
+                Text(kakaoConfig.restAPIKey.isEmpty ? "REST Key Missing" : "REST Key Set")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(.secondary)
             }
@@ -403,13 +433,42 @@ struct ConnectionGuideView: View {
                 .frame(width: 90)
             }
 
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(kakaoConfig.javaScriptKey.isEmpty ? Color.orange : Color.green)
+                    .frame(width: 10, height: 10)
+                Text(kakaoConfig.javaScriptKey.isEmpty ? "Map JS Key Optional (not set)" : "Map JS Key Set")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 10) {
+                Group {
+                    if showKakaoJSKey {
+                        TextField("Kakao JavaScript Key (for Kakao map rendering)", text: $kakaoConfig.javaScriptKey)
+                    } else {
+                        SecureField("Kakao JavaScript Key (for Kakao map rendering)", text: $kakaoConfig.javaScriptKey)
+                    }
+                }
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+                Button(showKakaoJSKey ? "Hide" : "Show") {
+                    showKakaoJSKey.toggle()
+                }
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+                .frame(width: 90)
+            }
+
             Button("Save") {
                 kakaoConfig.save()
             }
             .buttonStyle(SecondaryCarButtonStyle())
             .frame(height: 70)
 
-            Text("Used for in-app destination search and routing. For App Store release, keys should be proxied by a backend.")
+            Text("REST key is used for search/route API. JavaScript key enables Kakao map rendering in Navi. For App Store release, keys should be proxied by a backend.")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
         }
@@ -424,8 +483,21 @@ struct ConnectionGuideView: View {
     private func saveBackendURL() {
         do {
             try AppConfig.setBackendOverride(urlString: backendURLText)
+            selectedTelemetrySource = .backend
+            AppConfig.setTelemetrySource(.backend)
             backendURLText = AppConfig.backendBaseURLString
-            teslaAuth.statusMessage = "Saved backend URL."
+            teslaAuth.statusMessage = "Saved backend URL. Telemetry Source switched to Backend."
+        } catch {
+            teslaAuth.statusMessage = error.localizedDescription
+        }
+    }
+
+    private func saveBackendToken() {
+        do {
+            try AppConfig.setBackendAPIToken(backendAPITokenText)
+            backendAPITokenText = AppConfig.backendAPIToken
+            let set = !backendAPITokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            teslaAuth.statusMessage = set ? "Saved backend token." : "Cleared backend token."
         } catch {
             teslaAuth.statusMessage = error.localizedDescription
         }
@@ -505,7 +577,17 @@ struct ConnectionGuideView: View {
         config.timeoutIntervalForRequest = 2.5
         config.timeoutIntervalForResource = 4
         let session = URLSession(configuration: config)
-        let (data, response) = try await session.data(from: healthURL)
+
+        var request = URLRequest(url: healthURL)
+        request.httpMethod = "GET"
+        if let auth = AppConfig.backendAuthorizationHeader {
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
+        }
+        if let apiKey = AppConfig.backendTokenForAPIKeyHeader {
+            request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
+        }
+
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw TelemetryError.invalidResponse
         }
@@ -532,8 +614,12 @@ struct ConnectionGuideView: View {
         Task {
             defer { isTestingTesla = false }
             do {
-                let count = try await TeslaFleetService.shared.testVehiclesCount()
-                teslaAuth.statusMessage = "Fleet OK. Vehicles: \(count)"
+                let diag = try await TeslaFleetService.shared.testVehiclesDiagnostics()
+                teslaAuth.statusMessage = """
+                Fleet OK. Vehicles: \(diag.count)
+                URL: \(diag.requestURL)
+                Network: \(diag.networkPathSummary)
+                """
             } catch {
                 teslaAuth.statusMessage = error.localizedDescription
             }

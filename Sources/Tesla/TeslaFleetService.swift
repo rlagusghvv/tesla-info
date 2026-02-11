@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 actor TeslaFleetService {
     static let shared = TeslaFleetService()
@@ -20,6 +21,8 @@ actor TeslaFleetService {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
         config.timeoutIntervalForResource = 20
+        config.waitsForConnectivity = false
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.session = URLSession(configuration: config)
     }
 
@@ -122,9 +125,18 @@ actor TeslaFleetService {
     }
 
     func testVehiclesCount() async throws -> Int {
-        let data = try await request(path: "/api/1/vehicles", method: "GET")
-        let decoded = try decoder.decode(TeslaVehiclesEnvelope.self, from: data)
-        return decoded.response?.count ?? 0
+        let diagnostics = try await testVehiclesDiagnostics()
+        return diagnostics.count
+    }
+
+    func testVehiclesDiagnostics() async throws -> VehiclesDiagnostics {
+        let result = try await requestWithMetadata(path: "/api/1/vehicles", method: "GET")
+        let decoded = try decoder.decode(TeslaVehiclesEnvelope.self, from: result.data)
+        return VehiclesDiagnostics(
+            count: decoded.response?.count ?? 0,
+            requestURL: result.url.absoluteString,
+            networkPathSummary: result.pathSummary
+        )
     }
 
     func testSnapshotDiagnostics() async throws -> SnapshotDiagnostics {
@@ -364,28 +376,20 @@ actor TeslaFleetService {
     }
 
     private func request(path: String, method: String, queryItems: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
-        let token = try await TeslaAuthStore.shared.ensureValidAccessToken()
-        let base = (KeychainStore.getString(Keys.fleetApiBase) ?? TeslaConstants.defaultFleetApiBase).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let baseURL = URL(string: base.hasSuffix("/") ? base : "\(base)/") else {
-            throw TeslaFleetError.misconfigured("Invalid Fleet API base URL.")
-        }
-        guard let url = URL(string: path.hasPrefix("/") ? String(path.dropFirst()) : path, relativeTo: baseURL) else {
-            throw TeslaFleetError.misconfigured("Invalid API path.")
-        }
+        let result = try await requestWithMetadata(path: path, method: method, queryItems: queryItems, body: body)
+        return result.data
+    }
 
-        var finalURL = url
-        if !queryItems.isEmpty {
-            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
-                throw TeslaFleetError.misconfigured("Invalid API URL.")
-            }
-            var merged = components.queryItems ?? []
-            merged.append(contentsOf: queryItems)
-            components.queryItems = merged
-            guard let updated = components.url else {
-                throw TeslaFleetError.misconfigured("Invalid API URL.")
-            }
-            finalURL = updated
-        }
+    private func requestWithMetadata(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem] = [],
+        body: Data? = nil
+    ) async throws -> (data: Data, url: URL, pathSummary: String) {
+        let token = try await TeslaAuthStore.shared.ensureValidAccessToken()
+        let finalURL = try buildURL(path: path, queryItems: queryItems)
+        let pathSummary = FleetNetworkProbe.shared.snapshot()
+        print("[fleet:request] \(method.uppercased()) \(finalURL.absoluteString) | path=\(pathSummary)")
 
         var request = URLRequest(url: finalURL)
         request.httpMethod = method
@@ -393,7 +397,27 @@ actor TeslaFleetService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = body
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            throw CancellationError()
+        } catch let urlError as URLError {
+            throw TeslaFleetError.network(
+                url: finalURL.absoluteString,
+                code: urlError.code,
+                pathSummary: pathSummary,
+                detail: urlError.localizedDescription
+            )
+        } catch {
+            throw TeslaFleetError.network(
+                url: finalURL.absoluteString,
+                code: nil,
+                pathSummary: pathSummary,
+                detail: error.localizedDescription
+            )
+        }
         guard let http = response as? HTTPURLResponse else {
             throw TeslaFleetError.http(status: -1, message: "Invalid server response.")
         }
@@ -413,7 +437,39 @@ actor TeslaFleetService {
             throw TeslaFleetError.http(status: http.statusCode, message: shortened)
         }
 
-        return data
+        return (data, finalURL, pathSummary)
+    }
+
+    private func buildURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        let base = (KeychainStore.getString(Keys.fleetApiBase) ?? TeslaConstants.defaultFleetApiBase)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let baseURL = URL(string: base.hasSuffix("/") ? base : "\(base)/") else {
+            throw TeslaFleetError.misconfigured("Invalid Fleet API base URL.")
+        }
+        let scheme = (baseURL.scheme ?? "").lowercased()
+        let host = (baseURL.host ?? "").lowercased()
+        if scheme != "https" || !host.contains("tesla.com") {
+            throw TeslaFleetError.misconfigured(
+                "Direct Fleet mode requires Tesla Fleet API base (https://fleet-api...tesla.com). For local server use, switch Telemetry Source to Backend."
+            )
+        }
+        guard let url = URL(string: path.hasPrefix("/") ? String(path.dropFirst()) : path, relativeTo: baseURL) else {
+            throw TeslaFleetError.misconfigured("Invalid API path.")
+        }
+
+        if queryItems.isEmpty {
+            return url
+        }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+            throw TeslaFleetError.misconfigured("Invalid API URL.")
+        }
+        var merged = components.queryItems ?? []
+        merged.append(contentsOf: queryItems)
+        components.queryItems = merged
+        guard let updated = components.url else {
+            throw TeslaFleetError.misconfigured("Invalid API URL.")
+        }
+        return updated
     }
 
     private enum Keys {
@@ -764,6 +820,68 @@ actor TeslaFleetService {
     }
 }
 
+private final class FleetNetworkProbe {
+    static let shared = FleetNetworkProbe()
+
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "tesla.subdash.fleet.network.probe")
+    private let lock = NSLock()
+    private var latestSummary = "status=unknown iface=unknown ipv4=unknown ipv6=unknown dns=unknown expensive=unknown constrained=unknown"
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            let summary = Self.makeSummary(path)
+            self.lock.lock()
+            self.latestSummary = summary
+            self.lock.unlock()
+            print("[fleet:path] \(summary)")
+        }
+        monitor.start(queue: queue)
+    }
+
+    deinit {
+        monitor.cancel()
+    }
+
+    func snapshot() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return latestSummary
+    }
+
+    private static func makeSummary(_ path: NWPath) -> String {
+        let status: String
+        switch path.status {
+        case .satisfied:
+            status = "satisfied"
+        case .unsatisfied:
+            status = "unsatisfied"
+        case .requiresConnection:
+            status = "requiresConnection"
+        @unknown default:
+            status = "unknown"
+        }
+
+        let iface = primaryInterface(from: path)
+        let ipv4 = path.supportsIPv4 ? "yes" : "no"
+        let ipv6 = path.supportsIPv6 ? "yes" : "no"
+        let dns = path.supportsDNS ? "yes" : "no"
+        let expensive = path.isExpensive ? "yes" : "no"
+        let constrained = path.isConstrained ? "yes" : "no"
+        return "status=\(status) iface=\(iface) ipv4=\(ipv4) ipv6=\(ipv6) dns=\(dns) expensive=\(expensive) constrained=\(constrained)"
+    }
+
+    private static func primaryInterface(from path: NWPath) -> String {
+        if path.usesInterfaceType(.wifi) { return "wifi" }
+        if path.usesInterfaceType(.cellular) { return "cellular" }
+        if path.usesInterfaceType(.wiredEthernet) { return "ethernet" }
+        if path.usesInterfaceType(.loopback) { return "loopback" }
+        if path.usesInterfaceType(.other) { return "other" }
+        return "unknown"
+    }
+}
+
 struct SnapshotDiagnostics {
     let mappedLocation: VehicleLocation
     let driveStateLatitude: Double?
@@ -796,11 +914,18 @@ struct FleetStatusDiagnostics {
     let rawPreview: String
 }
 
+struct VehiclesDiagnostics {
+    let count: Int
+    let requestURL: String
+    let networkPathSummary: String
+}
+
 enum TeslaFleetError: LocalizedError {
     case noVehicles
     case misconfigured(String)
     case unauthorized(String)
     case rateLimited(retryAfterSeconds: Int?)
+    case network(url: String, code: URLError.Code?, pathSummary: String, detail: String)
     case http(status: Int, message: String)
 
     var errorDescription: String? {
@@ -824,8 +949,52 @@ enum TeslaFleetError: LocalizedError {
                 return "Rate limited by Tesla API. Retry after \(seconds)s."
             }
             return "Rate limited by Tesla API. Please try again later."
+        case .network(let url, let code, let pathSummary, let detail):
+            let codeText = formatURLErrorCode(code)
+            let pathText = pathSummary.isEmpty ? "path=(unknown)" : "path=\(pathSummary)"
+            if let code {
+                switch code {
+                case .timedOut:
+                    return "Tesla network error: URLError.timedOut\nURL: \(url)\n\(pathText)\nDetail: \(detail)"
+                case .cannotFindHost:
+                    return "Tesla network error: URLError.cannotFindHost\nURL: \(url)\n\(pathText)\nDetail: \(detail)"
+                case .cannotConnectToHost:
+                    return "Tesla network error: URLError.cannotConnectToHost\nURL: \(url)\n\(pathText)\nDetail: \(detail)"
+                default:
+                    return "Tesla network error: \(codeText)\nURL: \(url)\n\(pathText)\nDetail: \(detail)"
+                }
+            }
+            return "Tesla network error: \(codeText)\nURL: \(url)\n\(pathText)\nDetail: \(detail)"
         case .http(let status, let message):
             return "Tesla API error (HTTP \(status)): \(message)"
+        }
+    }
+
+    private func formatURLErrorCode(_ code: URLError.Code?) -> String {
+        guard let code else { return "URLError.unknown" }
+        switch code {
+        case .timedOut:
+            return "URLError.timedOut"
+        case .cannotFindHost:
+            return "URLError.cannotFindHost"
+        case .cannotConnectToHost:
+            return "URLError.cannotConnectToHost"
+        case .networkConnectionLost:
+            return "URLError.networkConnectionLost"
+        case .notConnectedToInternet:
+            return "URLError.notConnectedToInternet"
+        case .internationalRoamingOff:
+            return "URLError.internationalRoamingOff"
+        case .callIsActive:
+            return "URLError.callIsActive"
+        case .dataNotAllowed:
+            return "URLError.dataNotAllowed"
+        case .cancelled:
+            return "URLError.cancelled"
+        case .secureConnectionFailed:
+            return "URLError.secureConnectionFailed"
+        default:
+            return "URLError(\(code.rawValue))"
         }
     }
 }

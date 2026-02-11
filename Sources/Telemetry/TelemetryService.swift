@@ -8,6 +8,8 @@ actor TelemetryService {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
         config.timeoutIntervalForResource = 20
+        config.waitsForConnectivity = false
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.session = URLSession(configuration: config)
     }
 
@@ -69,9 +71,23 @@ actor TelemetryService {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let auth = AppConfig.backendAuthorizationHeader {
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
+        }
+        if let apiKey = AppConfig.backendTokenForAPIKeyHeader {
+            request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
+        }
         request.httpBody = body
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            throw error
+        }
         guard let http = response as? HTTPURLResponse else {
             throw TelemetryError.invalidResponse
         }

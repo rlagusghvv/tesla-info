@@ -39,11 +39,17 @@ final class TeslaAuthStore: ObservableObject {
     }
 
     func loadConfig() {
-        clientId = KeychainStore.getString(Keys.clientId) ?? ""
-        clientSecret = KeychainStore.getString(Keys.clientSecret) ?? ""
-        redirectURI = KeychainStore.getString(Keys.redirectURI) ?? TeslaConstants.defaultRedirectURI
-        audience = KeychainStore.getString(Keys.audience) ?? TeslaConstants.defaultAudience
-        fleetApiBase = KeychainStore.getString(Keys.fleetApiBase) ?? TeslaConstants.defaultFleetApiBase
+        clientId = (KeychainStore.getString(Keys.clientId) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        clientSecret = (KeychainStore.getString(Keys.clientSecret) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let loadedRedirect = KeychainStore.getString(Keys.redirectURI)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        redirectURI = loadedRedirect.isEmpty ? TeslaConstants.defaultRedirectURI : loadedRedirect
+
+        let loadedAudience = KeychainStore.getString(Keys.audience)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        audience = loadedAudience.isEmpty ? TeslaConstants.defaultAudience : loadedAudience
+
+        let loadedFleetBase = KeychainStore.getString(Keys.fleetApiBase)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        fleetApiBase = loadedFleetBase.isEmpty ? TeslaConstants.defaultFleetApiBase : loadedFleetBase
     }
 
     func saveConfig() {

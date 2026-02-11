@@ -31,6 +31,7 @@
 		B598D78FC0B19C6D5AF78163 /* TeslaConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB808D279D7016FA6D2C2D01 /* TeslaConstants.swift */; };
 		C9E69697C68829FBD4AD2BE9 /* TeslaAuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927ED7021DC82A1F0FED5F21 /* TeslaAuthStore.swift */; };
 		D13E3F4EC11BC62FB0D80B2B /* RootRouterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 392056DA8DDF8AFC7E238BF9 /* RootRouterView.swift */; };
+		D2640A345B9AEB4F0F86A5FA /* KakaoWebRouteMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39689E7C69892F592D7C1850 /* KakaoWebRouteMapView.swift */; };
 		DF326BD775803422DF19DEF0 /* KakaoNavigationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD155AC8C2082C1009B34E00 /* KakaoNavigationViewModel.swift */; };
 /* End PBXBuildFile section */
 
@@ -38,6 +39,7 @@
 		06164552DF1EBD7CD4EF4111 /* ConnectionGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionGuideView.swift; sourceTree = "<group>"; };
 		1F30CAEDD100EC9C4055FCE0 /* TeslaFleetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeslaFleetService.swift; sourceTree = "<group>"; };
 		392056DA8DDF8AFC7E238BF9 /* RootRouterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootRouterView.swift; sourceTree = "<group>"; };
+		39689E7C69892F592D7C1850 /* KakaoWebRouteMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KakaoWebRouteMapView.swift; sourceTree = "<group>"; };
 		5BB264DFCB57C20455335C9B /* InAppBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InAppBrowserView.swift; sourceTree = "<group>"; };
 		6F4C4760A5113F261C24E767 /* CarModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarModeView.swift; sourceTree = "<group>"; };
 		7741868A85F0FA41AF65E6B4 /* LaunchFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchFlags.swift; sourceTree = "<group>"; };
@@ -168,6 +170,7 @@
 				87424F3EEA70776C81721FB7 /* KakaoNavigationPaneView.swift */,
 				BD155AC8C2082C1009B34E00 /* KakaoNavigationViewModel.swift */,
 				B1E43CD7C295F26783BBF091 /* KakaoRouteMapView.swift */,
+				39689E7C69892F592D7C1850 /* KakaoWebRouteMapView.swift */,
 			);
 			path = Navi;
 			sourceTree = "<group>";
@@ -273,6 +276,7 @@
 				B460560CB35221AA48282F5C /* KakaoNavigationPaneView.swift in Sources */,
 				DF326BD775803422DF19DEF0 /* KakaoNavigationViewModel.swift in Sources */,
 				93EB67D3C7EE8CE3993C8FEC /* KakaoRouteMapView.swift in Sources */,
+				D2640A345B9AEB4F0F86A5FA /* KakaoWebRouteMapView.swift in Sources */,
 				6933477D9DF059622508D0E6 /* KeychainStore.swift in Sources */,
 				1AB860A43273F4A1128C2644 /* LaunchFlags.swift in Sources */,
 				60EA07C3189E5E355FEBCB7E /* NetworkMonitor.swift in Sources */,

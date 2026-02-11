@@ -22,6 +22,7 @@ final class CarModeViewModel: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var isRefreshing = false
     private var consecutiveFailures = 0
+    private var lastErrorFingerprint = ""
 
     init(service: TelemetryService = TelemetryService()) {
         self.service = service
@@ -63,9 +64,12 @@ final class CarModeViewModel: ObservableObject {
 
         do {
             let latest = try await service.fetchLatest()
-            snapshot = latest
+            if shouldReplaceSnapshot(with: latest) {
+                snapshot = latest
+            }
             isLoading = false
             errorMessage = nil
+            lastErrorFingerprint = ""
             consecutiveFailures = 0
             lastSuccessfulUpdateAt = Date()
 
@@ -75,9 +79,16 @@ final class CarModeViewModel: ObservableObject {
                 pollIntervalSeconds = 12
             }
         } catch {
+            if shouldIgnore(error) {
+                return
+            }
             isLoading = false
             consecutiveFailures += 1
-            errorMessage = error.localizedDescription
+            let message = compactErrorMessage(error.localizedDescription)
+            if message != lastErrorFingerprint {
+                errorMessage = message
+                lastErrorFingerprint = message
+            }
 
             if let fleetError = error as? TeslaFleetError {
                 switch fleetError {
@@ -109,14 +120,19 @@ final class CarModeViewModel: ObservableObject {
             do {
                 let response = try await service.sendCommand(command)
                 if let latest = response.snapshot {
-                    snapshot = latest
+                    if shouldReplaceSnapshot(with: latest) {
+                        snapshot = latest
+                    }
                 }
                 commandMessage = response.message
                 if !response.ok {
-                    errorMessage = response.message
+                    errorMessage = compactErrorMessage(response.message)
                 }
             } catch {
-                errorMessage = error.localizedDescription
+                if shouldIgnore(error) {
+                    return
+                }
+                errorMessage = compactErrorMessage(error.localizedDescription)
                 commandMessage = nil
             }
         }
@@ -153,5 +169,56 @@ final class CarModeViewModel: ObservableObject {
 
     var mediaURL: URL? {
         URL(string: mediaURLText.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func shouldIgnore(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+        if let fleetError = error as? TeslaFleetError,
+           case .network(_, let code, _, _) = fleetError,
+           code == .cancelled {
+            return true
+        }
+        return false
+    }
+
+    private func compactErrorMessage(_ message: String) -> String {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Unknown error." }
+        if trimmed.count > 220 {
+            return String(trimmed.prefix(220)) + "..."
+        }
+        return trimmed
+    }
+
+    private func shouldReplaceSnapshot(with latest: VehicleSnapshot) -> Bool {
+        let current = snapshot
+
+        if current.source != latest.source || current.mode != latest.mode {
+            return true
+        }
+
+        let old = current.vehicle
+        let new = latest.vehicle
+
+        if old.displayName != new.displayName { return true }
+        if old.onlineState != new.onlineState { return true }
+        if old.isLocked != new.isLocked { return true }
+        if old.isClimateOn != new.isClimateOn { return true }
+        if abs(old.speedKph - new.speedKph) >= 0.3 { return true }
+        if abs(old.batteryLevel - new.batteryLevel) >= 0.2 { return true }
+        if abs(old.estimatedRangeKm - new.estimatedRangeKm) >= 0.5 { return true }
+        if abs(old.headingDeg - new.headingDeg) >= 1.0 { return true }
+        if abs(old.location.lat - new.location.lat) + abs(old.location.lon - new.location.lon) >= 0.00005 { return true }
+
+        let oldCommandAt = current.lastCommand?.at ?? ""
+        let newCommandAt = latest.lastCommand?.at ?? ""
+        if oldCommandAt != newCommandAt { return true }
+
+        return false
     }
 }

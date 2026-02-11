@@ -177,3 +177,19 @@ All future implementation and refactoring should conform to these rules.
 - Application/ops integration:
   - npm script `tesla:oauth:exchange:sync` 추가.
   - callback 안내 페이지/README를 one-step 명령 기준으로 업데이트.
+
+## Update 2026-02-11 (TeslaMate Refresh Resilience)
+
+- Self-review (before coding):
+  - SoC: Fleet refresh는 OAuth utility 레이어, TeslaMate 주입은 bridge 레이어로 분리 유지.
+  - DIP: 기존 provider(`fleet`/`teslamate`) 실행 경로는 변경하지 않고 운영 유틸만 추가.
+  - Multi-tenancy: 기존 단일 `.env` 운영 모델 유지(차후 userId 분리 대상).
+  - Resilience/Observability: TeslaMate 내부 refresh 실패(`.../nts/token`) 시 외부 refresh+sync 우회 경로 제공.
+- Infrastructure update:
+  - Added `backend/tesla_oauth_refresh_and_sync.mjs`:
+    - Fleet auth token refresh (`/oauth2/v3/token`)
+    - `.env` token persistence
+    - TeslaMate runtime token sync (`docker exec ... TeslaMate.Auth.save + sign_in`)
+- Application/ops integration:
+  - Added npm script `tesla:oauth:refresh:sync`.
+  - README에 장기 운영용 주기 refresh 안내 추가.

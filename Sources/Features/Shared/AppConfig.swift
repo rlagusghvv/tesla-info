@@ -4,6 +4,7 @@ enum AppConfig {
     private static let defaultBackend = "http://127.0.0.1:8787"
     private static let backendOverrideKey = "backend_base_url_override"
     private static let telemetrySourceKey = "telemetry_source"
+    private static let backendTokenKey = "backend.api.token"
 
     static var backendBaseURL: URL {
         if let override = UserDefaults.standard.string(forKey: backendOverrideKey),
@@ -23,6 +24,26 @@ enum AppConfig {
 
     static var backendBaseURLString: String {
         backendBaseURL.absoluteString
+    }
+
+    static var backendAPIToken: String {
+        KeychainStore.getString(backendTokenKey) ?? ""
+    }
+
+    static var backendTokenForAPIKeyHeader: String? {
+        let trimmed = backendAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.count > 7, trimmed.lowercased().hasPrefix("bearer ") {
+            let token = String(trimmed.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return token.isEmpty ? nil : token
+        }
+        return trimmed
+    }
+
+    static var backendAuthorizationHeader: String? {
+        guard let token = backendTokenForAPIKeyHeader else { return nil }
+        return "Bearer \(token)"
     }
 
     static var telemetrySource: TelemetrySource {
@@ -50,6 +71,15 @@ enum AppConfig {
         }
 
         UserDefaults.standard.set(trimmed, forKey: backendOverrideKey)
+    }
+
+    static func setBackendAPIToken(_ token: String) throws {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            KeychainStore.delete(backendTokenKey)
+            return
+        }
+        try KeychainStore.setString(trimmed, for: backendTokenKey)
     }
 }
 

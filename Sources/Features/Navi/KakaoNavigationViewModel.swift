@@ -17,7 +17,12 @@ final class KakaoNavigationViewModel: ObservableObject {
     private var cachedClient: KakaoAPIClient?
 
     func updateVehicle(location: VehicleLocation, speedKph: Double) {
-        vehicleCoordinate = location.isValid ? location.coordinate : nil
+        let nextCoordinate = location.isValid ? location.coordinate : nil
+        let coordinateChanged = hasCoordinateChanged(current: vehicleCoordinate, next: nextCoordinate)
+        let speedChanged = abs(vehicleSpeedKph - speedKph) >= 0.3
+        guard coordinateChanged || speedChanged else { return }
+
+        vehicleCoordinate = nextCoordinate
         vehicleSpeedKph = speedKph
     }
 
@@ -115,5 +120,20 @@ final class KakaoNavigationViewModel: ObservableObject {
         let s2 = sin(dLon / 2.0)
         let h = (s1 * s1) + (cos(lat1) * cos(lat2) * s2 * s2)
         return 2.0 * r * asin(min(1.0, sqrt(h)))
+    }
+
+    private func hasCoordinateChanged(
+        current: CLLocationCoordinate2D?,
+        next: CLLocationCoordinate2D?
+    ) -> Bool {
+        switch (current, next) {
+        case (nil, nil):
+            return false
+        case (nil, .some), (.some, nil):
+            return true
+        case let (.some(a), .some(b)):
+            let delta = abs(a.latitude - b.latitude) + abs(a.longitude - b.longitude)
+            return delta >= 0.00002
+        }
     }
 }

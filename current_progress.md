@@ -837,3 +837,33 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 ### [특이 사항]
 - TeslaMate 런타임 동기화는 로컬에 `docker`와 대상 컨테이너가 있어야 동작.
 - 백엔드가 공개 인터넷에 열려 있어도 이번 자동화는 CLI 기반이라 외부 호출 엔드포인트를 추가하지 않음.
+
+## 2026-02-11 (추가 업데이트 @22:42 GitHub push 완료)
+
+### [완료된 작업]
+- 토큰 발급/교환/테슬라메이트 런타임 동기화 관련 변경을 선택 커밋 후 GitHub `main`에 푸시.
+- 커밋: `56a9c7f` (`feat: add one-step oauth exchange and teslamate runtime sync`)
+
+### [현재 상태]
+- 맥미니에서 `git pull` 후 `tesla:oauth:exchange:sync` 사용 가능.
+
+### [다음 단계]
+- 맥미니에서 최신 코드 pull -> backend 재시작 -> callback URL로 one-step 동기화 실행.
+
+### [특이 사항]
+- Swift UI 관련 로컬 변경 파일들은 아직 미커밋 상태로 유지됨(의도적 분리 커밋).
+
+## 2026-02-11 (추가 업데이트 @22:50 Mac mini LLM handoff)
+
+### [완료된 작업]
+- 맥미니의 LLM(OpenClu 등)에 전달할 실행 지시문(복붙용) 작성 준비.
+- 포함 범위: pull, 설치, 백엔드 재시작, OAuth 교환+TeslaMate 동기화, 헬스체크.
+
+### [현재 상태]
+- 서버 토큰 자동화 커밋(`56a9c7f`)은 `origin/main`에 반영 완료.
+
+### [다음 단계]
+- 사용자에게 맥미니 LLM용 최종 프롬프트 전달.
+
+### [특이 사항]
+- Swift UI 변경은 별도 미커밋 상태로 유지, 이번 핸드오프는 서버 운영 절차만 대상으로 함.
