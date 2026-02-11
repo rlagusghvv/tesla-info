@@ -8,6 +8,8 @@
     "backend:start:sim": "USE_SIMULATOR=1 node backend/server.mjs",
     "backend:start:tesla": "USE_SIMULATOR=0 POLL_TESLA=1 node backend/server.mjs",
     "backend:start:tesla:lan": "USE_SIMULATOR=0 POLL_TESLA=1 HOST=0.0.0.0 node backend/server.mjs",
+    "backend:start:teslamate": "USE_SIMULATOR=0 USE_TESLAMATE=1 POLL_TESLA=1 node backend/server.mjs",
+    "backend:start:teslamate:lan": "USE_SIMULATOR=0 USE_TESLAMATE=1 POLL_TESLA=1 HOST=0.0.0.0 node backend/server.mjs",
     "backend:setup:tesla": "bash backend/setup_env.sh",
     "backend:check:tesla": "node backend/check_tesla_token.mjs",
     "tesla:partner:register": "node backend/tesla_partner_register.mjs",

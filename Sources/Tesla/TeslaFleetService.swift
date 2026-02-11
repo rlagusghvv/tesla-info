@@ -144,29 +144,95 @@ actor TeslaFleetService {
         let drive = source.driveState
         let location = source.locationData
         let responseKeys = extractResponseKeysFromRawJSON(data)
+        let flaggedAccessType = extractResponseStringValueFromRawJSON(data, key: "access_type")
         let rawLocation = extractLocationFromRawJSON(data)
         var plainResponseKeys = ""
+        var plainAccessType: String?
         var plainRawLocation: TeslaLocationData?
+        var locationEndpointLocation: TeslaLocationData?
+        var locationEndpointError: String = ""
         do {
             let plainData = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/vehicle_data", method: "GET")
             plainResponseKeys = extractResponseKeysFromRawJSON(plainData).joined(separator: ", ")
+            plainAccessType = extractResponseStringValueFromRawJSON(plainData, key: "access_type")
             plainRawLocation = extractLocationFromRawJSON(plainData)
         } catch {
             plainResponseKeys = "(plain request failed)"
+        }
+        do {
+            let endpointData = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/data_request/location_data", method: "GET")
+            let endpointEnvelope = try decoder.decode(TeslaLocationDataEnvelope.self, from: endpointData)
+            locationEndpointLocation = endpointEnvelope.response
+        } catch {
+            let text = error.localizedDescription
+            if text.contains("HTTP 404") {
+                locationEndpointError = "not_supported_on_fleet_api"
+            } else {
+                locationEndpointError = text
+            }
         }
 
         return SnapshotDiagnostics(
             mappedLocation: mapped.vehicle.location,
             driveStateLatitude: drive?.latitude,
             driveStateLongitude: drive?.longitude,
+            driveStateNativeLatitude: drive?.nativeLatitude,
+            driveStateNativeLongitude: drive?.nativeLongitude,
             locationDataLatitude: location?.latitude,
             locationDataLongitude: location?.longitude,
+            locationDataNativeLatitude: location?.nativeLatitude,
+            locationDataNativeLongitude: location?.nativeLongitude,
             rawLocationLatitude: rawLocation?.latitude,
             rawLocationLongitude: rawLocation?.longitude,
             responseKeys: responseKeys.joined(separator: ", "),
+            flaggedAccessType: flaggedAccessType,
             plainRawLocationLatitude: plainRawLocation?.latitude,
             plainRawLocationLongitude: plainRawLocation?.longitude,
-            plainResponseKeys: plainResponseKeys
+            plainResponseKeys: plainResponseKeys,
+            plainAccessType: plainAccessType,
+            locationEndpointLatitude: locationEndpointLocation?.resolvedLatitude,
+            locationEndpointLongitude: locationEndpointLocation?.resolvedLongitude,
+            locationEndpointError: locationEndpointError
+        )
+    }
+
+    func testFleetStatusDiagnostics() async throws -> FleetStatusDiagnostics {
+        let vehicle = try await resolveVehicle()
+        let vin = vehicle.vin.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !vin.isEmpty else {
+            throw TeslaFleetError.misconfigured("VIN is missing. Reconnect Tesla account and retry.")
+        }
+
+        let payload: [String: Any] = ["vins": [vin]]
+        let body = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let data = try await request(path: "/api/1/vehicles/fleet_status", method: "POST", body: body)
+        let rawPreview = String(data: data, encoding: .utf8)
+            .map { $0.count > 700 ? String($0.prefix(700)) + "..." : $0 } ?? "(binary)"
+
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return FleetStatusDiagnostics(
+                vin: vin,
+                protocolRequired: nil,
+                totalNumberOfKeys: nil,
+                statusKeys: "(unparsed)",
+                responseKeys: "(unparsed)",
+                rawPreview: rawPreview
+            )
+        }
+
+        let responseKeys = root.keys.sorted().joined(separator: ", ")
+        let status = extractFleetStatusNode(from: root, vin: vin)
+        let statusKeys = status?.keys.sorted().joined(separator: ", ") ?? "(missing)"
+        let protocolRequired = extractProtocolRequired(from: status ?? root)
+        let totalNumberOfKeys = extractTotalNumberOfKeys(from: status ?? root)
+
+        return FleetStatusDiagnostics(
+            vin: vin,
+            protocolRequired: protocolRequired,
+            totalNumberOfKeys: totalNumberOfKeys,
+            statusKeys: statusKeys,
+            responseKeys: responseKeys,
+            rawPreview: rawPreview
         )
     }
 
@@ -384,7 +450,7 @@ actor TeslaFleetService {
     }
 
     private func patchVehicle(from drive: TeslaDriveState, existing: VehicleData) -> VehicleData? {
-        guard let lat = drive.latitude, let lon = drive.longitude else { return nil }
+        guard let lat = drive.resolvedLatitude, let lon = drive.resolvedLongitude else { return nil }
         let loc = VehicleLocation(lat: lat, lon: lon)
         guard loc.isValid else { return nil }
 
@@ -407,7 +473,7 @@ actor TeslaFleetService {
     }
 
     private func patchVehicle(from location: TeslaLocationData, existing: VehicleData) -> VehicleData? {
-        guard let lat = location.latitude, let lon = location.longitude else { return nil }
+        guard let lat = location.resolvedLatitude, let lon = location.resolvedLongitude else { return nil }
         let loc = VehicleLocation(lat: lat, lon: lon)
         guard loc.isValid else { return nil }
 
@@ -443,6 +509,16 @@ actor TeslaFleetService {
         return response.keys.sorted()
     }
 
+    private func extractResponseStringValueFromRawJSON(_ data: Data, key: String) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        guard let response = json["response"] as? [String: Any] else {
+            return nil
+        }
+        return toString(response[key])
+    }
+
     private func extractLocationFromRawJSON(_ data: Data) -> TeslaLocationData? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
@@ -464,12 +540,23 @@ actor TeslaFleetService {
             guard let node = nestedDictionary(response, path: path) else { continue }
             let lat = toDouble(node["latitude"])
             let lon = toDouble(node["longitude"])
+            let nativeLat = toDouble(node["native_latitude"])
+            let nativeLon = toDouble(node["native_longitude"])
             let heading = toDouble(node["heading"])
             let speed = toDouble(node["speed"])
-            if let lat, let lon {
-                let loc = VehicleLocation(lat: lat, lon: lon)
+            let resolvedLat = lat ?? nativeLat
+            let resolvedLon = lon ?? nativeLon
+            if let resolvedLat, let resolvedLon {
+                let loc = VehicleLocation(lat: resolvedLat, lon: resolvedLon)
                 if loc.isValid {
-                    return TeslaLocationData(latitude: lat, longitude: lon, heading: heading, speed: speed)
+                    return TeslaLocationData(
+                        latitude: lat,
+                        longitude: lon,
+                        heading: heading,
+                        speed: speed,
+                        nativeLatitude: nativeLat,
+                        nativeLongitude: nativeLon
+                    )
                 }
             }
         }
@@ -497,6 +584,151 @@ actor TeslaFleetService {
         default:
             return nil
         }
+    }
+
+    private func toInt(_ value: Any?) -> Int? {
+        switch value {
+        case let n as NSNumber:
+            return n.intValue
+        case let s as String:
+            return Int(s)
+        default:
+            return nil
+        }
+    }
+
+    private func toBool(_ value: Any?) -> Bool? {
+        switch value {
+        case let b as Bool:
+            return b
+        case let n as NSNumber:
+            return n.boolValue
+        case let s as String:
+            switch s.lowercased() {
+            case "true", "1", "yes", "y", "on":
+                return true
+            case "false", "0", "no", "n", "off":
+                return false
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    private func toString(_ value: Any?) -> String? {
+        switch value {
+        case let s as String:
+            return s
+        case let n as NSNumber:
+            return n.stringValue
+        default:
+            return nil
+        }
+    }
+
+    private func extractFleetStatusNode(from root: [String: Any], vin: String) -> [String: Any]? {
+        if let response = root["response"] as? [String: Any] {
+            let vinUpper = vin.uppercased()
+            if let direct = response[vin] as? [String: Any] {
+                return direct
+            }
+            if let direct = response[vinUpper] as? [String: Any] {
+                return direct
+            }
+            if let directArray = response[vin] as? [[String: Any]] {
+                return directArray.first
+            }
+            if let directArray = response[vinUpper] as? [[String: Any]] {
+                return directArray.first
+            }
+            if let wrapped = response[vin] as? [Any],
+               let first = wrapped.first as? [String: Any] {
+                return first
+            }
+            if let wrapped = response[vinUpper] as? [Any],
+               let first = wrapped.first as? [String: Any] {
+                return first
+            }
+            if let vehicles = response["vehicles"] as? [[String: Any]],
+               let matched = vehicles.first(where: { toString($0["vin"]) == vin }) {
+                return matched
+            }
+            if let first = response.values.first as? [String: Any] {
+                return first
+            }
+            return response
+        }
+
+        if let responseList = root["response"] as? [[String: Any]] {
+            return responseList.first(where: { toString($0["vin"]) == vin }) ?? responseList.first
+        }
+
+        return nil
+    }
+
+    private func deepFindValue(in node: Any, keys: Set<String>) -> Any? {
+        if let dict = node as? [String: Any] {
+            for (k, v) in dict where keys.contains(k) {
+                return v
+            }
+            for (_, v) in dict {
+                if let found = deepFindValue(in: v, keys: keys) {
+                    return found
+                }
+            }
+            return nil
+        }
+
+        if let list = node as? [Any] {
+            for item in list {
+                if let found = deepFindValue(in: item, keys: keys) {
+                    return found
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func extractProtocolRequired(from node: Any) -> Bool? {
+        if let value = deepFindValue(
+            in: node,
+            keys: [
+                "vehicle_command_protocol_required",
+                "command_protocol_required",
+                "requires_vehicle_command_protocol"
+            ]
+        ) {
+            return toBool(value)
+        }
+
+        if let vcpNode = deepFindValue(in: node, keys: ["vehicle_command_protocol"]) as? [String: Any] {
+            if let value = toBool(vcpNode["required"]) {
+                return value
+            }
+            if let value = toBool(vcpNode["is_required"]) {
+                return value
+            }
+        }
+
+        return nil
+    }
+
+    private func extractTotalNumberOfKeys(from node: Any) -> Int? {
+        if let value = deepFindValue(
+            in: node,
+            keys: [
+                "total_number_of_keys",
+                "total_keys",
+                "number_of_keys",
+                "key_count"
+            ]
+        ) {
+            return toInt(value)
+        }
+        return nil
     }
 
     private func parseWakeResponse(_ data: Data) -> (ok: Bool, message: String) {
@@ -536,14 +768,32 @@ struct SnapshotDiagnostics {
     let mappedLocation: VehicleLocation
     let driveStateLatitude: Double?
     let driveStateLongitude: Double?
+    let driveStateNativeLatitude: Double?
+    let driveStateNativeLongitude: Double?
     let locationDataLatitude: Double?
     let locationDataLongitude: Double?
+    let locationDataNativeLatitude: Double?
+    let locationDataNativeLongitude: Double?
     let rawLocationLatitude: Double?
     let rawLocationLongitude: Double?
     let responseKeys: String
+    let flaggedAccessType: String?
     let plainRawLocationLatitude: Double?
     let plainRawLocationLongitude: Double?
     let plainResponseKeys: String
+    let plainAccessType: String?
+    let locationEndpointLatitude: Double?
+    let locationEndpointLongitude: Double?
+    let locationEndpointError: String
+}
+
+struct FleetStatusDiagnostics {
+    let vin: String
+    let protocolRequired: Bool?
+    let totalNumberOfKeys: Int?
+    let statusKeys: String
+    let responseKeys: String
+    let rawPreview: String
 }
 
 enum TeslaFleetError: LocalizedError {
@@ -649,6 +899,17 @@ private struct TeslaDriveState: Decodable {
     let longitude: Double?
     let heading: Double?
     let speed: Double?
+    let nativeLatitude: Double?
+    let nativeLongitude: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case latitude
+        case longitude
+        case heading
+        case speed
+        case nativeLatitude = "native_latitude"
+        case nativeLongitude = "native_longitude"
+    }
 }
 
 private struct TeslaLocationData: Decodable {
@@ -656,12 +917,32 @@ private struct TeslaLocationData: Decodable {
     let longitude: Double?
     let heading: Double?
     let speed: Double?
+    let nativeLatitude: Double?
+    let nativeLongitude: Double?
 
-    init(latitude: Double?, longitude: Double?, heading: Double?, speed: Double?) {
+    enum CodingKeys: String, CodingKey {
+        case latitude
+        case longitude
+        case heading
+        case speed
+        case nativeLatitude = "native_latitude"
+        case nativeLongitude = "native_longitude"
+    }
+
+    init(
+        latitude: Double?,
+        longitude: Double?,
+        heading: Double?,
+        speed: Double?,
+        nativeLatitude: Double?,
+        nativeLongitude: Double?
+    ) {
         self.latitude = latitude
         self.longitude = longitude
         self.heading = heading
         self.speed = speed
+        self.nativeLatitude = nativeLatitude
+        self.nativeLongitude = nativeLongitude
     }
 }
 
@@ -749,8 +1030,8 @@ private enum TeslaMapper {
                 isLocked: vehicleState?.locked ?? prev?.isLocked ?? true,
                 isClimateOn: climate?.isClimateOn ?? prev?.isClimateOn ?? false,
                 location: VehicleLocation(
-                    lat: loc?.latitude ?? drive?.latitude ?? prev?.location.lat ?? 0,
-                    lon: loc?.longitude ?? drive?.longitude ?? prev?.location.lon ?? 0
+                    lat: loc?.resolvedLatitude ?? drive?.resolvedLatitude ?? prev?.location.lat ?? 0,
+                    lon: loc?.resolvedLongitude ?? drive?.resolvedLongitude ?? prev?.location.lon ?? 0
                 )
             )
         )
@@ -765,5 +1046,25 @@ private enum TeslaMapper {
     private static func milesToKm(_ mi: Double?) -> Double? {
         guard let mi else { return nil }
         return mi * 1.60934
+    }
+}
+
+private extension TeslaDriveState {
+    var resolvedLatitude: Double? {
+        latitude ?? nativeLatitude
+    }
+
+    var resolvedLongitude: Double? {
+        longitude ?? nativeLongitude
+    }
+}
+
+private extension TeslaLocationData {
+    var resolvedLatitude: Double? {
+        latitude ?? nativeLatitude
+    }
+
+    var resolvedLongitude: Double? {
+        longitude ?? nativeLongitude
     }
 }

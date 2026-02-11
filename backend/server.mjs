@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createTeslaMateClient } from './teslamate_client.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,14 +42,23 @@ function loadEnvFile(filePath) {
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
 const USE_SIMULATOR = process.env.USE_SIMULATOR !== '0';
-const POLL_TESLA = process.env.POLL_TESLA === '1';
+const DATA_SOURCE = String(process.env.DATA_SOURCE || '').trim().toLowerCase();
+const USE_TESLAMATE = DATA_SOURCE === 'teslamate' || process.env.USE_TESLAMATE === '1';
+const MODE = USE_SIMULATOR ? 'simulator' : USE_TESLAMATE ? 'teslamate' : 'fleet';
+const POLL_ENABLED = process.env.POLL_TESLA === '1' || process.env.POLL_ENABLED === '1';
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 8000);
 const TESLA_USER_ACCESS_TOKEN = process.env.TESLA_USER_ACCESS_TOKEN || process.env.TESLA_ACCESS_TOKEN || '';
 const TESLA_VIN = process.env.TESLA_VIN || '';
 const TESLA_FLEET_API_BASE = process.env.TESLA_FLEET_API_BASE || 'https://fleet-api.prd.na.vn.cloud.tesla.com';
 const TESLA_TOKEN_GRANT_TYPE = inferJwtGrantType(TESLA_USER_ACCESS_TOKEN);
+const TESLAMATE_API_BASE = process.env.TESLAMATE_API_BASE || '';
+const TESLAMATE_API_TOKEN = process.env.TESLAMATE_API_TOKEN || '';
+const TESLAMATE_CAR_ID = process.env.TESLAMATE_CAR_ID || '';
+const TESLAMATE_AUTH_HEADER = process.env.TESLAMATE_AUTH_HEADER || 'Authorization';
+const TESLAMATE_TOKEN_QUERY_KEY = process.env.TESLAMATE_TOKEN_QUERY_KEY || '';
 const runtime = {
-  resolvedVin: TESLA_VIN
+  resolvedVin: TESLA_VIN,
+  resolvedTeslaMateCarId: TESLAMATE_CAR_ID || null
 };
 
 const SIM_ROUTE = [
@@ -75,12 +85,12 @@ const SIM_ROUTE = [
 let simIndex = 0;
 
 const state = {
-  mode: USE_SIMULATOR ? 'simulator' : 'fleet',
-  source: USE_SIMULATOR ? 'simulator' : 'startup',
+  mode: MODE,
+  source: MODE === 'simulator' ? 'simulator' : 'startup',
   lastCommand: null,
   updatedAt: new Date().toISOString(),
   vehicle: {
-    vin: TESLA_VIN || 'SIMULATED_VIN',
+    vin: MODE === 'fleet' ? TESLA_VIN || 'FLEET_VIN' : MODE === 'teslamate' ? 'TESLAMATE_VIN' : 'SIMULATED_VIN',
     displayName: 'Model Y',
     onlineState: 'online',
     batteryLevel: 78,
@@ -99,6 +109,17 @@ const state = {
     }
   }
 };
+
+let teslaMateClient = null;
+if (state.mode === 'teslamate') {
+  teslaMateClient = createTeslaMateClient({
+    baseURL: TESLAMATE_API_BASE,
+    token: TESLAMATE_API_TOKEN,
+    explicitCarId: TESLAMATE_CAR_ID,
+    authHeader: TESLAMATE_AUTH_HEADER,
+    tokenQueryKey: TESLAMATE_TOKEN_QUERY_KEY
+  });
+}
 
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
@@ -392,6 +413,24 @@ async function fetchTeslaVehicleData() {
   return snapshotResponse();
 }
 
+async function fetchTeslaMateCars() {
+  if (!teslaMateClient) {
+    throw new Error('TeslaMate mode is not enabled.');
+  }
+  return teslaMateClient.fetchCars();
+}
+
+async function fetchTeslaMateVehicleData() {
+  if (!teslaMateClient) {
+    throw new Error('TeslaMate mode is not enabled.');
+  }
+
+  const result = await teslaMateClient.fetchLatestVehicle(state.vehicle);
+  runtime.resolvedTeslaMateCarId = result.carId || runtime.resolvedTeslaMateCarId;
+  applyPatch(result.vehicle, 'teslamate_poll');
+  return snapshotResponse();
+}
+
 async function forwardTeslaCommand(command) {
   if (!TESLA_USER_ACCESS_TOKEN) {
     return {
@@ -428,6 +467,37 @@ async function forwardTeslaCommand(command) {
   };
 }
 
+async function forwardTeslaMateCommand(command) {
+  if (!teslaMateClient) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'TeslaMate mode is not enabled.'
+    };
+  }
+
+  const result = await teslaMateClient.sendCommand(command);
+  if (result.ok) {
+    try {
+      await fetchTeslaMateVehicleData();
+    } catch {
+      // Non-fatal: command result is still useful even if refresh fails.
+    }
+  }
+
+  return result;
+}
+
+async function fetchActiveVehicleData() {
+  if (state.mode === 'fleet') {
+    return fetchTeslaVehicleData();
+  }
+  if (state.mode === 'teslamate') {
+    return fetchTeslaMateVehicleData();
+  }
+  return snapshotResponse();
+}
+
 async function route(req, res) {
   if (req.method === 'OPTIONS') {
     sendJson(res, 204, {});
@@ -443,8 +513,12 @@ async function route(req, res) {
       host: HOST,
       configuredVin: TESLA_VIN || null,
       resolvedVin: runtime.resolvedVin || null,
+      resolvedTeslaMateCarId: runtime.resolvedTeslaMateCarId || null,
       hasUserAccessToken: !!TESLA_USER_ACCESS_TOKEN,
       tokenGrantType: TESLA_TOKEN_GRANT_TYPE,
+      hasTeslaMateBase: !!TESLAMATE_API_BASE,
+      hasTeslaMateToken: !!TESLAMATE_API_TOKEN,
+      teslaMateAuthHeader: TESLAMATE_AUTH_HEADER,
       source: state.source,
       updatedAt: state.updatedAt
     });
@@ -469,11 +543,43 @@ async function route(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/tesla/vehicles') {
+    if (state.mode !== 'fleet') {
+      sendJson(res, 400, { ok: false, message: 'This endpoint is available only in fleet mode.' });
+      return;
+    }
     try {
       const vehicles = await fetchTeslaVehicles();
       sendJson(res, 200, { ok: true, vehicles });
     } catch (error) {
       sendJson(res, 502, { ok: false, message: error instanceof Error ? error.message : 'Vehicle fetch failed' });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teslamate/cars') {
+    if (state.mode !== 'teslamate') {
+      sendJson(res, 400, { ok: false, message: 'Server is not in teslamate mode.' });
+      return;
+    }
+    try {
+      const cars = await fetchTeslaMateCars();
+      sendJson(res, 200, { ok: true, cars });
+    } catch (error) {
+      sendJson(res, 502, { ok: false, message: error instanceof Error ? error.message : 'TeslaMate cars fetch failed' });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teslamate/status') {
+    if (state.mode !== 'teslamate') {
+      sendJson(res, 400, { ok: false, message: 'Server is not in teslamate mode.' });
+      return;
+    }
+    try {
+      const diagnostics = await teslaMateClient.diagnostics();
+      sendJson(res, 200, { ok: true, diagnostics, snapshot: snapshotResponse() });
+    } catch (error) {
+      sendJson(res, 502, { ok: false, message: error instanceof Error ? error.message : 'TeslaMate status failed' });
     }
     return;
   }
@@ -490,6 +596,8 @@ async function route(req, res) {
       let result;
       if (state.mode === 'simulator') {
         result = applySimCommand(command);
+      } else if (state.mode === 'teslamate') {
+        result = await forwardTeslaMateCommand(command);
       } else {
         result = await forwardTeslaCommand(command);
       }
@@ -519,7 +627,21 @@ async function route(req, res) {
       return;
     }
     try {
-      const snapshot = await fetchTeslaVehicleData();
+      const snapshot = await fetchActiveVehicleData();
+      sendJson(res, 200, { ok: true, snapshot });
+    } catch (error) {
+      sendJson(res, 502, { ok: false, message: error instanceof Error ? error.message : 'Poll failed' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/vehicle/poll-now') {
+    if (state.mode === 'simulator') {
+      sendJson(res, 400, { ok: false, message: 'Server is in simulator mode.' });
+      return;
+    }
+    try {
+      const snapshot = await fetchActiveVehicleData();
       sendJson(res, 200, { ok: true, snapshot });
     } catch (error) {
       sendJson(res, 502, { ok: false, message: error instanceof Error ? error.message : 'Poll failed' });
@@ -535,12 +657,13 @@ async function route(req, res) {
 
 if (USE_SIMULATOR) {
   setInterval(tickSimulator, 1000).unref();
-} else if (POLL_TESLA) {
+} else if (POLL_ENABLED) {
   setInterval(async () => {
     try {
-      await fetchTeslaVehicleData();
+      await fetchActiveVehicleData();
     } catch (error) {
-      console.error('[fleet poll]', error instanceof Error ? error.message : error);
+      const label = state.mode === 'teslamate' ? 'teslamate poll' : 'fleet poll';
+      console.error(`[${label}]`, error instanceof Error ? error.message : error);
     }
   }, POLL_INTERVAL_MS).unref();
 }
@@ -556,12 +679,19 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`[tesla-subdash-backend] listening on http://${HOST}:${PORT}`);
-  console.log(`[tesla-subdash-backend] mode=${state.mode} pollTesla=${POLL_TESLA}`);
+  console.log(`[tesla-subdash-backend] mode=${state.mode} pollEnabled=${POLL_ENABLED}`);
   console.log(
     `[tesla-subdash-backend] userToken=${TESLA_USER_ACCESS_TOKEN ? 'set' : 'missing'} configuredVin=${
       TESLA_VIN || '(auto)'
     }`
   );
+  if (state.mode === 'teslamate') {
+    console.log(
+      `[tesla-subdash-backend] teslamateBase=${TESLAMATE_API_BASE || '(missing)'} token=${
+        TESLAMATE_API_TOKEN ? 'set' : 'missing'
+      } carId=${TESLAMATE_CAR_ID || '(auto)'}`
+    );
+  }
   if (TESLA_TOKEN_GRANT_TYPE) {
     console.log(`[tesla-subdash-backend] tokenGrantType=${TESLA_TOKEN_GRANT_TYPE}`);
   }

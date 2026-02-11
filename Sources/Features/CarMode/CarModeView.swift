@@ -67,6 +67,14 @@ struct CarModeView: View {
                 break
             }
         }
+        .onChange(of: showSetupSheet) { _, presented in
+            // Pause polling while editing account/setup fields to avoid UI hitches on older iPads.
+            if presented {
+                viewModel.stop()
+            } else if scenePhase == .active {
+                viewModel.start()
+            }
+        }
         .sheet(isPresented: $showSetupSheet) {
             ConnectionGuideView()
                 .presentationDetents([.large])

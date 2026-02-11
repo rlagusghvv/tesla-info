@@ -163,16 +163,53 @@ curl http://127.0.0.1:8787/api/tesla/vehicles
 curl -X POST http://127.0.0.1:8787/api/tesla/poll-now
 ```
 
+### 2.4) Run backend (TeslaMate fallback mode)
+
+If Fleet location is blocked (for example `DRIVER` access), use TeslaMate as a temporary location source.
+
+Set env values in `.env`:
+
+```bash
+TESLAMATE_API_BASE=https://<your-teslamate-api-base>
+TESLAMATE_API_TOKEN=<optional-token>
+TESLAMATE_CAR_ID=<optional-car-id>
+# Optional auth customization:
+# TESLAMATE_AUTH_HEADER=Authorization
+# TESLAMATE_TOKEN_QUERY_KEY=api_key
+```
+
+Run:
+
+```bash
+npm run backend:start:teslamate
+```
+
+LAN mode (for physical iPad):
+
+```bash
+npm run backend:start:teslamate:lan
+```
+
+Quick checks:
+
+```bash
+curl http://127.0.0.1:8787/health
+curl http://127.0.0.1:8787/api/teslamate/cars
+curl http://127.0.0.1:8787/api/vehicle/latest
+```
+
 ## 3) Connect iPad app to backend
 
 - In `Config/Info.plist`, `BackendBaseURL` is defaulted to `http://127.0.0.1:8787`.
 - For physical iPad testing, start backend in LAN mode so it can accept connections:
-  - `npm run backend:start:tesla:lan`
+  - `npm run backend:start:tesla:lan` (Fleet)
+  - `npm run backend:start:teslamate:lan` (TeslaMate fallback)
   - It will print `http://<LAN_IP>:8787` candidates. Use the one that matches your current network (home Wi-Fi or iPhone hotspot).
 - You can also change backend URL in-app:
   - Open `Connection Guide` screen
+  - Set `Telemetry Source` to `Backend`
   - Use `Backend URL` field
-  - Tap `Save URL` and re-enter Car Mode
+  - Tap `Save URL` and `Test Backend`, then re-enter Car Mode
  - If prompted, allow `Local Network` access on iPad (Settings > TeslaSubDash > Local Network).
 
 ## 4) Build app in Xcode
@@ -195,9 +232,12 @@ curl -X POST http://127.0.0.1:8787/api/tesla/poll-now
 - `GET /health`
 - `GET /api/vehicle/latest`
 - `GET /api/tesla/vehicles` (fleet token required)
+- `GET /api/teslamate/cars` (teslamate mode only)
+- `GET /api/teslamate/status` (teslamate mode only)
 - `POST /api/vehicle/command` body: `{ "command": "door_lock" }`
 - `POST /api/telemetry/ingest` body: partial vehicle telemetry patch
-- `POST /api/tesla/poll-now` (fleet mode only)
+- `POST /api/tesla/poll-now` (fleet/teslamate mode)
+- `POST /api/vehicle/poll-now` (fleet/teslamate mode, generic)
 
 ## Quick ingest test
 

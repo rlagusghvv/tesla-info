@@ -10,10 +10,21 @@ struct ConnectionGuideView: View {
     @EnvironmentObject private var kakaoConfig: KakaoConfigStore
     @State private var isTestingTesla = false
     @State private var isTestingSnapshot = false
+    @State private var isTestingFleetStatus = false
     @State private var showManualLogin = false
     @State private var showKakaoKey = false
     @State private var showAdvancedTesla = false
     @State private var showTeslaDiagnostics = false
+    @State private var selectedTelemetrySource: TelemetrySource = AppConfig.telemetrySource
+    @State private var backendURLText: String = AppConfig.backendBaseURLString
+    @State private var isTestingBackend = false
+    @State private var isDetectingBackend = false
+
+    private let quickBackendCandidates: [String] = [
+        "http://172.20.10.5:8787",
+        "http://172.20.10.3:8787",
+        "http://127.0.0.1:8787"
+    ]
 
     var body: some View {
         ZStack {
@@ -52,15 +63,17 @@ struct ConnectionGuideView: View {
                         description: "Run the Start Car Mode shortcut or tap the blue button below."
                     )
 
+                    telemetrySourcePanel
                     teslaConfigPanel
                     kakaoConfigPanel
 
                     Button {
-                        if teslaAuth.isSignedIn {
+                        let source = AppConfig.telemetrySource
+                        if source == .backend || teslaAuth.isSignedIn {
                             router.enterCarMode(reason: .manualShortcut)
                             dismiss()
                         } else {
-                            teslaAuth.statusMessage = "Please connect Tesla first."
+                            teslaAuth.statusMessage = "Please connect Tesla first, or switch Telemetry Source to Backend."
                         }
                     } label: {
                         Label("Start Car Mode", systemImage: "car.fill")
@@ -91,6 +104,10 @@ struct ConnectionGuideView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
+        .onAppear {
+            selectedTelemetrySource = AppConfig.telemetrySource
+            backendURLText = AppConfig.backendBaseURLString
+        }
     }
 
     private var statusBadge: some View {
@@ -110,6 +127,86 @@ struct ConnectionGuideView: View {
         .padding(.vertical, 10)
         .background(
             Capsule(style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+    private var telemetrySourcePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Telemetry Source")
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+
+            HStack(spacing: 10) {
+                ForEach(TelemetrySource.allCases, id: \.rawValue) { source in
+                    Button(source.title) {
+                        selectedTelemetrySource = source
+                        AppConfig.setTelemetrySource(source)
+                        teslaAuth.statusMessage = "Telemetry source: \(source.title)"
+                    }
+                    .buttonStyle(
+                        SecondaryCarButtonStyle(
+                            fontSize: 18,
+                            height: 56,
+                            cornerRadius: 16,
+                            fillColor: selectedTelemetrySource == source ? Color.blue.opacity(0.2) : Color(.tertiarySystemBackground),
+                            strokeColor: selectedTelemetrySource == source ? Color.blue : Color.clear
+                        )
+                    )
+                }
+            }
+
+            if selectedTelemetrySource == .backend {
+                TextField("Backend URL", text: $backendURLText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(quickBackendCandidates, id: \.self) { candidate in
+                            Button(shortBackendLabel(candidate)) {
+                                applyBackendURLAndSave(candidate)
+                            }
+                            .buttonStyle(SecondaryCarButtonStyle(fontSize: 14, height: 44, cornerRadius: 12))
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                HStack(spacing: 10) {
+                    Button("Save URL") {
+                        saveBackendURL()
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+
+                    Button(isTestingBackend ? "Testing..." : "Test Backend") {
+                        testBackendConnection()
+                    }
+                    .disabled(isTestingBackend)
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+                }
+
+                Button(isDetectingBackend ? "Detecting..." : "Auto Detect Backend") {
+                    autoDetectBackend()
+                }
+                .disabled(isDetectingBackend)
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+
+                Text("Use this mode for TeslaMate or local simulator backend.")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Direct Fleet mode uses Tesla OAuth in this app.")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
         )
     }
@@ -232,6 +329,12 @@ struct ConnectionGuideView: View {
                     }
                     .disabled(isTestingSnapshot)
                     .buttonStyle(SecondaryCarButtonStyle())
+
+                    Button(isTestingFleetStatus ? "Testing..." : "Test Fleet Status") {
+                        testTeslaFleetStatus()
+                    }
+                    .disabled(isTestingFleetStatus)
+                    .buttonStyle(SecondaryCarButtonStyle())
                 }
             }
             .frame(minHeight: 84)
@@ -318,6 +421,109 @@ struct ConnectionGuideView: View {
         )
     }
 
+    private func saveBackendURL() {
+        do {
+            try AppConfig.setBackendOverride(urlString: backendURLText)
+            backendURLText = AppConfig.backendBaseURLString
+            teslaAuth.statusMessage = "Saved backend URL."
+        } catch {
+            teslaAuth.statusMessage = error.localizedDescription
+        }
+    }
+
+    private func applyBackendURLAndSave(_ urlString: String) {
+        backendURLText = urlString
+        saveBackendURL()
+    }
+
+    private func testBackendConnection() {
+        guard !isTestingBackend else { return }
+        isTestingBackend = true
+        teslaAuth.statusMessage = nil
+
+        Task {
+            defer { isTestingBackend = false }
+            do {
+                let trimmed = backendURLText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    throw AppConfigError.invalidURL
+                }
+                if let info = try await probeBackendHealth(baseURLString: trimmed) {
+                    teslaAuth.statusMessage = "Backend OK. mode=\(info.mode)"
+                } else {
+                    teslaAuth.statusMessage = "Backend OK."
+                }
+            } catch {
+                teslaAuth.statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func autoDetectBackend() {
+        guard !isDetectingBackend else { return }
+        isDetectingBackend = true
+        teslaAuth.statusMessage = "Detecting backend..."
+
+        Task {
+            defer { isDetectingBackend = false }
+
+            let typed = backendURLText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let candidates = ([typed] + quickBackendCandidates)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .reduce(into: [String]()) { acc, next in
+                    if !acc.contains(next) { acc.append(next) }
+                }
+
+            for candidate in candidates {
+                if let info = try? await probeBackendHealth(baseURLString: candidate) {
+                    backendURLText = candidate
+                    selectedTelemetrySource = .backend
+                    AppConfig.setTelemetrySource(.backend)
+                    do {
+                        try AppConfig.setBackendOverride(urlString: candidate)
+                        teslaAuth.statusMessage = "Backend detected: \(candidate) (mode=\(info.mode))"
+                    } catch {
+                        teslaAuth.statusMessage = "Detected backend but save failed: \(error.localizedDescription)"
+                    }
+                    return
+                }
+            }
+
+            teslaAuth.statusMessage = "No backend detected. Check Mac backend process and iPad hotspot network."
+        }
+    }
+
+    private func probeBackendHealth(baseURLString: String) async throws -> BackendHealthInfo? {
+        let trimmed = baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let baseURL = URL(string: trimmed), !trimmed.isEmpty else {
+            throw AppConfigError.invalidURL
+        }
+
+        let healthURL = baseURL.appendingPathComponent("health")
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 2.5
+        config.timeoutIntervalForResource = 4
+        let session = URLSession(configuration: config)
+        let (data, response) = try await session.data(from: healthURL)
+        guard let http = response as? HTTPURLResponse else {
+            throw TelemetryError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            throw TelemetryError.server("Backend error: \(body)")
+        }
+        return try? JSONDecoder().decode(BackendHealthInfo.self, from: data)
+    }
+
+    private func shortBackendLabel(_ urlString: String) -> String {
+        guard let url = URL(string: urlString), let host = url.host else {
+            return urlString
+        }
+        let port = url.port.map(String.init) ?? "80"
+        return "\(host):\(port)"
+    }
+
     private func testTeslaConnection() {
         guard !isTestingTesla else { return }
         isTestingTesla = true
@@ -349,37 +555,99 @@ struct ConnectionGuideView: View {
                 } else {
                     let driveLat = formatDiagValue(diag.driveStateLatitude)
                     let driveLon = formatDiagValue(diag.driveStateLongitude)
+                    let driveNativeLat = formatDiagValue(diag.driveStateNativeLatitude)
+                    let driveNativeLon = formatDiagValue(diag.driveStateNativeLongitude)
                     let locLat = formatDiagValue(diag.locationDataLatitude)
                     let locLon = formatDiagValue(diag.locationDataLongitude)
+                    let locNativeLat = formatDiagValue(diag.locationDataNativeLatitude)
+                    let locNativeLon = formatDiagValue(diag.locationDataNativeLongitude)
                     let rawLat = formatDiagValue(diag.rawLocationLatitude)
                     let rawLon = formatDiagValue(diag.rawLocationLongitude)
+                    let accessTypeFlagged = diag.flaggedAccessType ?? "nil"
                     let plainRawLat = formatDiagValue(diag.plainRawLocationLatitude)
                     let plainRawLon = formatDiagValue(diag.plainRawLocationLongitude)
+                    let accessTypePlain = diag.plainAccessType ?? "nil"
+                    let endpointLat = formatDiagValue(diag.locationEndpointLatitude)
+                    let endpointLon = formatDiagValue(diag.locationEndpointLongitude)
+                    let endpointError = diag.locationEndpointError.trimmingCharacters(in: .whitespacesAndNewlines)
                     let likelyTeslaScopeFilter =
                         diag.driveStateLatitude == nil &&
                         diag.driveStateLongitude == nil &&
+                        diag.driveStateNativeLatitude == nil &&
+                        diag.driveStateNativeLongitude == nil &&
                         diag.locationDataLatitude == nil &&
                         diag.locationDataLongitude == nil &&
+                        diag.locationDataNativeLatitude == nil &&
+                        diag.locationDataNativeLongitude == nil &&
                         diag.rawLocationLatitude == nil &&
                         diag.rawLocationLongitude == nil &&
                         diag.plainRawLocationLatitude == nil &&
                         diag.plainRawLocationLongitude == nil &&
+                        diag.locationEndpointLatitude == nil &&
+                        diag.locationEndpointLongitude == nil &&
                         (diag.responseKeys.contains("drive_state") || diag.plainResponseKeys.contains("drive_state"))
 
                     let hint = likelyTeslaScopeFilter
-                        ? "\nLikely Tesla-side location permission filtering. In Tesla app: Security & Privacy > Security > Third Party Apps > Manage this app > enable Vehicle Location. Then retry after a short delay."
+                        ? "\nLikely Tesla-side filtering or propagation delay.\n1) Tesla app > Security & Privacy > Third Party Apps > Manage this app > Vehicle Location ON.\n2) Wait 10+ minutes after scope/permission changes.\n3) If still nil, complete Fleet key pairing for this VIN, then retry Wake + Refresh."
                         : ""
+                    let endpointLine: String
+                    if endpointError == "not_supported_on_fleet_api" {
+                        endpointLine = "location_endpoint: not supported on Fleet API (404 expected)"
+                    } else if endpointError.isEmpty {
+                        endpointLine = "location_endpoint: \(endpointLat), \(endpointLon)"
+                    } else {
+                        endpointLine = "location_endpoint_error: \(endpointError)"
+                    }
                     teslaAuth.statusMessage = """
                     vehicle_data OK, but location is missing.
                     drive_state: \(driveLat), \(driveLon)
+                    drive_state(native): \(driveNativeLat), \(driveNativeLon)
                     location_data: \(locLat), \(locLon)
+                    location_data(native): \(locNativeLat), \(locNativeLon)
                     raw_fallback: \(rawLat), \(rawLon)
                     response_keys(flagged): \(diag.responseKeys)
+                    access_type(flagged): \(accessTypeFlagged)
                     raw_fallback(plain): \(plainRawLat), \(plainRawLon)
                     response_keys(plain): \(diag.plainResponseKeys)
+                    access_type(plain): \(accessTypePlain)
+                    \(endpointLine)
                     Try Wake + Refresh.\(hint)
                     """
                 }
+            } catch {
+                teslaAuth.statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func testTeslaFleetStatus() {
+        guard !isTestingFleetStatus else { return }
+        isTestingFleetStatus = true
+        teslaAuth.statusMessage = nil
+
+        Task {
+            defer { isTestingFleetStatus = false }
+            do {
+                let diag = try await TeslaFleetService.shared.testFleetStatusDiagnostics()
+                let protocolText = diag.protocolRequired.map { $0 ? "true" : "false" } ?? "unknown"
+                let keyCountText = diag.totalNumberOfKeys.map(String.init) ?? "unknown"
+                let needsPairingHint: String
+                if diag.protocolRequired == true,
+                   (diag.totalNumberOfKeys == nil || diag.totalNumberOfKeys == 0) {
+                    needsPairingHint = "\nLikely missing Fleet key pairing for this VIN."
+                } else {
+                    needsPairingHint = ""
+                }
+
+                teslaAuth.statusMessage = """
+                fleet_status OK
+                vin: \(diag.vin)
+                vehicle_command_protocol_required: \(protocolText)
+                total_number_of_keys: \(keyCountText)
+                status_keys: \(diag.statusKeys)
+                response_keys: \(diag.responseKeys)
+                raw_preview: \(diag.rawPreview)\(needsPairingHint)
+                """
             } catch {
                 teslaAuth.statusMessage = error.localizedDescription
             }
@@ -390,6 +658,11 @@ struct ConnectionGuideView: View {
         guard let value else { return "nil" }
         return String(format: "%.5f", value)
     }
+}
+
+private struct BackendHealthInfo: Decodable {
+    let ok: Bool
+    let mode: String
 }
 
 private struct StepCard: View {

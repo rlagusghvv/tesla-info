@@ -3,6 +3,7 @@ import Foundation
 enum AppConfig {
     private static let defaultBackend = "http://127.0.0.1:8787"
     private static let backendOverrideKey = "backend_base_url_override"
+    private static let telemetrySourceKey = "telemetry_source"
 
     static var backendBaseURL: URL {
         if let override = UserDefaults.standard.string(forKey: backendOverrideKey),
@@ -24,6 +25,19 @@ enum AppConfig {
         backendBaseURL.absoluteString
     }
 
+    static var telemetrySource: TelemetrySource {
+        if let raw = UserDefaults.standard.string(forKey: telemetrySourceKey),
+           let source = TelemetrySource(rawValue: raw) {
+            return source
+        }
+        // Default to backend mode for in-car reliability and easier local iteration.
+        return .backend
+    }
+
+    static func setTelemetrySource(_ source: TelemetrySource) {
+        UserDefaults.standard.set(source.rawValue, forKey: telemetrySourceKey)
+    }
+
     static func setBackendOverride(urlString: String) throws {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -36,6 +50,20 @@ enum AppConfig {
         }
 
         UserDefaults.standard.set(trimmed, forKey: backendOverrideKey)
+    }
+}
+
+enum TelemetrySource: String, CaseIterable {
+    case directFleet = "direct_fleet"
+    case backend = "backend"
+
+    var title: String {
+        switch self {
+        case .directFleet:
+            return "Direct Fleet"
+        case .backend:
+            return "Backend"
+        }
     }
 }
 
