@@ -77,6 +77,18 @@ actor TeslaFleetService {
             }
         }
 
+        if !mapped.vehicle.location.isValid,
+           let rawLocation = extractLocationFromRawJSON(data),
+           let patchedVehicle = patchVehicle(from: rawLocation, existing: mapped.vehicle) {
+            mapped = VehicleSnapshot(
+                source: mapped.source,
+                mode: mapped.mode,
+                updatedAt: iso.string(from: Date()),
+                lastCommand: mapped.lastCommand,
+                vehicle: patchedVehicle
+            )
+        }
+
         lastSnapshot = mapped
         return mapped
     }
@@ -100,15 +112,21 @@ actor TeslaFleetService {
 
         let decoded = try decoder.decode(TeslaVehicleDataEnvelope.self, from: data)
         let mapped = TeslaMapper.mapVehicleDataToSnapshot(vehicleData: decoded.response, fallback: vehicle, previous: lastSnapshot)
-        let drive = decoded.response.driveState
-        let location = decoded.response.locationData
+        let source = decoded.response
+        let drive = source.driveState
+        let location = source.locationData
+        let responseKeys = extractResponseKeysFromRawJSON(data)
+        let rawLocation = extractLocationFromRawJSON(data)
 
         return SnapshotDiagnostics(
             mappedLocation: mapped.vehicle.location,
             driveStateLatitude: drive?.latitude,
             driveStateLongitude: drive?.longitude,
             locationDataLatitude: location?.latitude,
-            locationDataLongitude: location?.longitude
+            locationDataLongitude: location?.longitude,
+            rawLocationLatitude: rawLocation?.latitude,
+            rawLocationLongitude: rawLocation?.longitude,
+            responseKeys: responseKeys.joined(separator: ", ")
         )
     }
 
@@ -338,6 +356,72 @@ actor TeslaFleetService {
     private func mphToKph(_ mph: Double) -> Double {
         mph * 1.60934
     }
+
+    private func extractResponseKeysFromRawJSON(_ data: Data) -> [String] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
+        }
+        guard let response = json["response"] as? [String: Any] else {
+            return []
+        }
+        return response.keys.sorted()
+    }
+
+    private func extractLocationFromRawJSON(_ data: Data) -> TeslaLocationData? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        guard let response = json["response"] as? [String: Any] else {
+            return nil
+        }
+
+        let candidatePaths: [[String]] = [
+            ["drive_state"],
+            ["location_data"],
+            ["vehicle_data", "drive_state"],
+            ["vehicle_data", "location_data"],
+            ["vehicle_data_combo", "drive_state"],
+            ["vehicle_data_combo", "location_data"]
+        ]
+
+        for path in candidatePaths {
+            guard let node = nestedDictionary(response, path: path) else { continue }
+            let lat = toDouble(node["latitude"])
+            let lon = toDouble(node["longitude"])
+            let heading = toDouble(node["heading"])
+            let speed = toDouble(node["speed"])
+            if let lat, let lon {
+                let loc = VehicleLocation(lat: lat, lon: lon)
+                if loc.isValid {
+                    return TeslaLocationData(latitude: lat, longitude: lon, heading: heading, speed: speed)
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func nestedDictionary(_ root: [String: Any], path: [String]) -> [String: Any]? {
+        var current: Any = root
+        for key in path {
+            guard let dict = current as? [String: Any], let next = dict[key] else {
+                return nil
+            }
+            current = next
+        }
+        return current as? [String: Any]
+    }
+
+    private func toDouble(_ value: Any?) -> Double? {
+        switch value {
+        case let n as NSNumber:
+            return n.doubleValue
+        case let s as String:
+            return Double(s)
+        default:
+            return nil
+        }
+    }
 }
 
 struct SnapshotDiagnostics {
@@ -346,6 +430,9 @@ struct SnapshotDiagnostics {
     let driveStateLongitude: Double?
     let locationDataLatitude: Double?
     let locationDataLongitude: Double?
+    let rawLocationLatitude: Double?
+    let rawLocationLongitude: Double?
+    let responseKeys: String
 }
 
 enum TeslaFleetError: LocalizedError {
@@ -458,6 +545,13 @@ private struct TeslaLocationData: Decodable {
     let longitude: Double?
     let heading: Double?
     let speed: Double?
+
+    init(latitude: Double?, longitude: Double?, heading: Double?, speed: Double?) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.heading = heading
+        self.speed = speed
+    }
 }
 
 private struct TeslaDriveStateEnvelope: Decodable {
