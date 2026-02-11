@@ -9,6 +9,7 @@ actor TeslaFleetService {
 
     private var cachedVehicle: TeslaVehicleSummary?
     private var lastSnapshot: VehicleSnapshot?
+    private var lastDriveStateFallbackAttemptAt: Date?
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -19,9 +20,31 @@ actor TeslaFleetService {
 
     func fetchLatestSnapshot() async throws -> VehicleSnapshot {
         let vehicle = try await resolveVehicle()
-        let data = try await request(path: "/api/1/vehicles/\(vehicle.vin)/vehicle_data", method: "GET")
+        let data = try await request(path: "/api/1/vehicles/\(vehicle.identifier)/vehicle_data", method: "GET")
         let decoded = try decoder.decode(TeslaVehicleDataEnvelope.self, from: data)
-        let mapped = TeslaMapper.mapVehicleDataToSnapshot(vehicleData: decoded.response, fallback: vehicle, previous: lastSnapshot)
+        var mapped = TeslaMapper.mapVehicleDataToSnapshot(vehicleData: decoded.response, fallback: vehicle, previous: lastSnapshot)
+
+        // Some vehicles/accounts return vehicle_data without a usable drive_state.location.
+        // Try a dedicated drive_state request as a fallback, but avoid hammering the API.
+        if !mapped.vehicle.location.isValid, shouldAttemptDriveStateFallback() {
+            lastDriveStateFallbackAttemptAt = Date()
+            do {
+                let driveData = try await request(path: "/api/1/vehicles/\(vehicle.identifier)/data_request/drive_state", method: "GET")
+                let driveEnvelope = try decoder.decode(TeslaDriveStateEnvelope.self, from: driveData)
+                if let patchedVehicle = patchVehicle(from: driveEnvelope.response, existing: mapped.vehicle) {
+                    mapped = VehicleSnapshot(
+                        source: mapped.source,
+                        mode: mapped.mode,
+                        updatedAt: iso.string(from: Date()),
+                        lastCommand: mapped.lastCommand,
+                        vehicle: patchedVehicle
+                    )
+                }
+            } catch {
+                // Non-fatal: keep the original snapshot if drive_state fallback fails.
+            }
+        }
+
         lastSnapshot = mapped
         return mapped
     }
@@ -34,7 +57,7 @@ actor TeslaFleetService {
 
     func sendCommand(_ command: String) async throws -> CommandResponse {
         let vehicle = try await resolveVehicle()
-        let data = try await request(path: "/api/1/vehicles/\(vehicle.vin)/command/\(command)", method: "POST", body: Data("{}".utf8))
+        let data = try await request(path: "/api/1/vehicles/\(vehicle.identifier)/command/\(command)", method: "POST", body: Data("{}".utf8))
         let decoded = try decoder.decode(TeslaCommandEnvelope.self, from: data)
         let ok = decoded.response?.result ?? true
         let reason = decoded.response?.reason
@@ -77,6 +100,13 @@ actor TeslaFleetService {
             return cachedVehicle
         }
 
+        if let idText = KeychainStore.getString(Keys.selectedVehicleId),
+           let id = Int64(idText),
+           id > 0 {
+            cachedVehicle = TeslaVehicleSummary(id: id, vin: "", displayName: "(Vehicle)", state: "unknown")
+            return cachedVehicle!
+        }
+
         if let vin = KeychainStore.getString(Keys.selectedVin), !vin.isEmpty {
             cachedVehicle = TeslaVehicleSummary(vin: vin, displayName: "(Vehicle)", state: "unknown")
             return cachedVehicle!
@@ -91,6 +121,9 @@ actor TeslaFleetService {
 
         cachedVehicle = first
         do {
+            if let id = first.id {
+                try KeychainStore.setString(String(id), for: Keys.selectedVehicleId)
+            }
             try KeychainStore.setString(first.vin, for: Keys.selectedVin)
         } catch {
             // Non-fatal; just skip caching.
@@ -138,7 +171,40 @@ actor TeslaFleetService {
 
     private enum Keys {
         static let selectedVin = "tesla.selected_vin"
+        static let selectedVehicleId = "tesla.selected_vehicle_id"
         static let fleetApiBase = "tesla.fleet_api_base"
+    }
+
+    private func shouldAttemptDriveStateFallback(now: Date = Date()) -> Bool {
+        guard let last = lastDriveStateFallbackAttemptAt else { return true }
+        return now.timeIntervalSince(last) > 25
+    }
+
+    private func patchVehicle(from drive: TeslaDriveState, existing: VehicleData) -> VehicleData? {
+        guard let lat = drive.latitude, let lon = drive.longitude else { return nil }
+        let loc = VehicleLocation(lat: lat, lon: lon)
+        guard loc.isValid else { return nil }
+
+        return VehicleData(
+            vin: existing.vin,
+            displayName: existing.displayName,
+            onlineState: existing.onlineState,
+            batteryLevel: existing.batteryLevel,
+            usableBatteryLevel: existing.usableBatteryLevel,
+            estimatedRangeKm: existing.estimatedRangeKm,
+            insideTempC: existing.insideTempC,
+            outsideTempC: existing.outsideTempC,
+            odometerKm: existing.odometerKm,
+            speedKph: drive.speed.map(mphToKph) ?? existing.speedKph,
+            headingDeg: drive.heading ?? existing.headingDeg,
+            isLocked: existing.isLocked,
+            isClimateOn: existing.isClimateOn,
+            location: loc
+        )
+    }
+
+    private func mphToKph(_ mph: Double) -> Double {
+        mph * 1.60934
     }
 }
 
@@ -173,14 +239,30 @@ private struct TeslaVehiclesEnvelope: Decodable {
 }
 
 private struct TeslaVehicleSummary: Decodable {
+    let id: Int64?
     let vin: String
     let displayName: String
     let state: String
 
     enum CodingKeys: String, CodingKey {
+        case id
         case vin
         case displayName = "display_name"
         case state
+    }
+
+    init(id: Int64? = nil, vin: String, displayName: String, state: String) {
+        self.id = id
+        self.vin = vin
+        self.displayName = displayName
+        self.state = state
+    }
+
+    var identifier: String {
+        if let id {
+            return String(id)
+        }
+        return vin
     }
 }
 
@@ -213,6 +295,10 @@ private struct TeslaDriveState: Decodable {
     let longitude: Double?
     let heading: Double?
     let speed: Double?
+}
+
+private struct TeslaDriveStateEnvelope: Decodable {
+    let response: TeslaDriveState
 }
 
 private struct TeslaChargeState: Decodable {

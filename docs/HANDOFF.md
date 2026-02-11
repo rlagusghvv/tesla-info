@@ -18,6 +18,11 @@
   - 오프라인 배너/오프라인 시 Navi 검색/경로 요청 차단
 - UI
   - iPad에서 `.segmented` Picker가 터치가 안 먹는 이슈가 있어서, 자체 세그먼트 버튼 UI로 교체
+- 차량 위치 안정화(Origin)
+  - Tesla API 호출 시 VIN 대신 `vehicle id`가 있으면 우선 사용(일부 계정에서 더 안정적)
+  - `vehicle_data`에서 위치가 안 오면 `data_request/drive_state`를 추가로 호출해 위치를 보강(25초 백오프)
+  - 위치가 없으면 사이드 패널에 `Unknown (tap Wake)`로 표시
+  - Navi 탭의 How-to 카드에 `Wake vehicle` 버튼 추가
 
 ## 키 설정 (카카오)
 1. 카카오 개발자 콘솔에서 앱 생성
@@ -59,4 +64,3 @@
 - 프리즈가 재현되면:
   - 폴리라인 maxPoints를 더 낮추기(예: 300)
   - 경로 표시를 "확정 버튼" 이후에만 렌더링하도록 단계 분리
-

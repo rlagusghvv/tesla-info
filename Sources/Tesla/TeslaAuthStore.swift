@@ -56,6 +56,7 @@ final class TeslaAuthStore: ObservableObject {
         KeychainStore.delete(Keys.refreshToken)
         KeychainStore.delete(Keys.expiresAt)
         KeychainStore.delete(Keys.selectedVin)
+        KeychainStore.delete(Keys.selectedVehicleId)
         loadTokenState()
         statusMessage = "Signed out."
     }
@@ -289,6 +290,7 @@ final class TeslaAuthStore: ObservableObject {
         static let refreshToken = "tesla.refresh_token"
         static let expiresAt = "tesla.expires_at"
         static let selectedVin = "tesla.selected_vin"
+        static let selectedVehicleId = "tesla.selected_vehicle_id"
 
         static let oauthState = "tesla.oauth_state"
         static let codeVerifier = "tesla.code_verifier"

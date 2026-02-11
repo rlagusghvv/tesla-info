@@ -143,9 +143,12 @@ final class CarModeViewModel: ObservableObject {
     }
 
     var locationText: String {
-        let lat = String(format: "%.5f", snapshot.vehicle.location.lat)
-        let lon = String(format: "%.5f", snapshot.vehicle.location.lon)
-        return "\(lat), \(lon)"
+        if snapshot.vehicle.location.isValid {
+            let lat = String(format: "%.5f", snapshot.vehicle.location.lat)
+            let lon = String(format: "%.5f", snapshot.vehicle.location.lon)
+            return "\(lat), \(lon)"
+        }
+        return "Unknown (tap Wake)"
     }
 
     var mediaURL: URL? {

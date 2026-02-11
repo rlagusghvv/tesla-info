@@ -8,6 +8,7 @@ struct KakaoNavigationPaneView: View {
 
     let vehicleLocation: VehicleLocation
     let vehicleSpeedKph: Double
+    let wakeVehicle: (() -> Void)?
 
     @FocusState private var searchFocused: Bool
 
@@ -168,6 +169,16 @@ struct KakaoNavigationPaneView: View {
                     Task { await runSearch() }
                 }
                 .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 52, cornerRadius: 16))
+            }
+
+            if model.vehicleCoordinate == nil, let wakeVehicle {
+                Button {
+                    wakeVehicle()
+                } label: {
+                    Label("Wake vehicle", systemImage: "bolt.fill")
+                }
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 52, cornerRadius: 16))
+                .disabled(!networkMonitor.isConnected)
             }
         }
         .padding(14)

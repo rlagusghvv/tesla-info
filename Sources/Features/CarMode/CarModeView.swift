@@ -137,7 +137,15 @@ struct CarModeView: View {
                     KakaoNavigationPaneView(
                         model: naviModel,
                         vehicleLocation: viewModel.snapshot.vehicle.location,
-                        vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph
+                        vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
+                        wakeVehicle: {
+                            viewModel.sendCommand("wake_up")
+                            Task {
+                                // Give the vehicle a moment to wake before polling for fresh drive_state.
+                                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                                await viewModel.refresh()
+                            }
+                        }
                     )
                 case .media:
                     mediaPane
