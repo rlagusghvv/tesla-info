@@ -19,19 +19,20 @@ When resuming work, read this file first and continue from **[다음 단계]**.
   - Decode + map `location_data` object when present (previously ignored).
   - Added fallback request: `data_request/location_data` if location is still missing after `drive_state`.
 - Verified the project still compiles via `xcodebuild ... CODE_SIGNING_ALLOWED=NO`.
+- Committed + pushed additional fixes:
+  - commit: `aef17c7`
+  - branch: `main`
+  - remote: `origin/main`
 
 ### [현재 상태]
 - Repo: `tesla-subdash-starter`
-- Latest pushed commit: `8ca3840` (pushed to `origin/main`)
-- Uncommitted changes:
-  - `Sources/Tesla/TeslaFleetService.swift` (location decode/mapping + location_data fallback)
-  - `current_progress.md` (this file)
+- Latest pushed commit: `aef17c7` (pushed to `origin/main`)
+- Working tree: clean (no local code changes)
 - Known issue (not fixed yet):
   - iPad app still shows vehicle location as unknown / `(0,0)` in `Map` and `Navi` tabs.
   - Pressing `Wake` now shows "Waking up..." but location still doesn't appear.
 
 ### [다음 단계]
-- Commit + push the location decode/mapping changes so the iPad build can be updated from GitHub.
 - Add a debug button to show which location fields are present in the raw `vehicle_data` response (sanitized).
 - If location is still missing after the above:
   - verify Tesla account/app has location sharing enabled for this OAuth client (Tesla-side setting),
@@ -41,4 +42,3 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 - Xcode Simulator tooling on this machine is currently broken (`CoreSimulatorService connection invalid`), so CLI simulator builds are unreliable.
 - CLI `xcodebuild` for device builds can fail due to provisioning profiles when run headless.
 - Testing should be done by building/running from Xcode UI onto the physical iPad.
-
