@@ -28,7 +28,9 @@ actor TeslaFleetService {
             path: "/api/1/vehicles/\(vehicle.vinOrId)/vehicle_data",
             method: "GET",
             queryItems: [
-                URLQueryItem(name: "endpoints", value: Self.vehicleDataEndpoints)
+                URLQueryItem(name: "endpoints", value: Self.vehicleDataEndpoints),
+                // Some accounts/firmware require this explicit flag to return coordinates.
+                URLQueryItem(name: "location_data", value: "true")
             ]
         )
         let decoded = try decoder.decode(TeslaVehicleDataEnvelope.self, from: data)
@@ -52,6 +54,26 @@ actor TeslaFleetService {
                 }
             } catch {
                 // Non-fatal: keep the original snapshot if drive_state fallback fails.
+            }
+
+            // Some firmware builds moved coordinates out of drive_state. If location is still missing,
+            // try a dedicated location_data request.
+            if !mapped.vehicle.location.isValid {
+                do {
+                    let locData = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/data_request/location_data", method: "GET")
+                    let locEnvelope = try decoder.decode(TeslaLocationDataEnvelope.self, from: locData)
+                    if let patchedVehicle = patchVehicle(from: locEnvelope.response, existing: mapped.vehicle) {
+                        mapped = VehicleSnapshot(
+                            source: mapped.source,
+                            mode: mapped.mode,
+                            updatedAt: iso.string(from: Date()),
+                            lastCommand: mapped.lastCommand,
+                            vehicle: patchedVehicle
+                        )
+                    }
+                } catch {
+                    // Non-fatal: keep the snapshot if location_data fallback fails.
+                }
             }
         }
 
@@ -265,6 +287,29 @@ actor TeslaFleetService {
         )
     }
 
+    private func patchVehicle(from location: TeslaLocationData, existing: VehicleData) -> VehicleData? {
+        guard let lat = location.latitude, let lon = location.longitude else { return nil }
+        let loc = VehicleLocation(lat: lat, lon: lon)
+        guard loc.isValid else { return nil }
+
+        return VehicleData(
+            vin: existing.vin,
+            displayName: existing.displayName,
+            onlineState: existing.onlineState,
+            batteryLevel: existing.batteryLevel,
+            usableBatteryLevel: existing.usableBatteryLevel,
+            estimatedRangeKm: existing.estimatedRangeKm,
+            insideTempC: existing.insideTempC,
+            outsideTempC: existing.outsideTempC,
+            odometerKm: existing.odometerKm,
+            speedKph: location.speed.map(mphToKph) ?? existing.speedKph,
+            headingDeg: location.heading ?? existing.headingDeg,
+            isLocked: existing.isLocked,
+            isClimateOn: existing.isClimateOn,
+            location: loc
+        )
+    }
+
     private func mphToKph(_ mph: Double) -> Double {
         mph * 1.60934
     }
@@ -351,6 +396,7 @@ private struct TeslaVehicleData: Decodable {
     let displayName: String?
     let state: String?
     let driveState: TeslaDriveState?
+    let locationData: TeslaLocationData?
     let chargeState: TeslaChargeState?
     let climateState: TeslaClimateState?
     let vehicleState: TeslaVehicleState?
@@ -360,6 +406,7 @@ private struct TeslaVehicleData: Decodable {
         case displayName = "display_name"
         case state
         case driveState = "drive_state"
+        case locationData = "location_data"
         case chargeState = "charge_state"
         case climateState = "climate_state"
         case vehicleState = "vehicle_state"
@@ -373,8 +420,19 @@ private struct TeslaDriveState: Decodable {
     let speed: Double?
 }
 
+private struct TeslaLocationData: Decodable {
+    let latitude: Double?
+    let longitude: Double?
+    let heading: Double?
+    let speed: Double?
+}
+
 private struct TeslaDriveStateEnvelope: Decodable {
     let response: TeslaDriveState
+}
+
+private struct TeslaLocationDataEnvelope: Decodable {
+    let response: TeslaLocationData
 }
 
 private struct TeslaChargeState: Decodable {
@@ -424,11 +482,12 @@ private enum TeslaMapper {
         let onlineState = vehicleData.state ?? fallback.state
 
         let drive = vehicleData.driveState
+        let loc = vehicleData.locationData
         let charge = vehicleData.chargeState
         let climate = vehicleData.climateState
         let vehicleState = vehicleData.vehicleState
 
-        let mph = drive?.speed
+        let mph = drive?.speed ?? loc?.speed
         let batteryRangeMi = charge?.batteryRange
         let odometerMi = vehicleState?.odometer
 
@@ -448,12 +507,12 @@ private enum TeslaMapper {
                 outsideTempC: climate?.outsideTemp ?? prev?.outsideTempC ?? 0,
                 odometerKm: milesToKm(odometerMi) ?? prev?.odometerKm ?? 0,
                 speedKph: mph.map(mphToKph) ?? prev?.speedKph ?? 0,
-                headingDeg: drive?.heading ?? prev?.headingDeg ?? 0,
+                headingDeg: drive?.heading ?? loc?.heading ?? prev?.headingDeg ?? 0,
                 isLocked: vehicleState?.locked ?? prev?.isLocked ?? true,
                 isClimateOn: climate?.isClimateOn ?? prev?.isClimateOn ?? false,
                 location: VehicleLocation(
-                    lat: drive?.latitude ?? prev?.location.lat ?? 0,
-                    lon: drive?.longitude ?? prev?.location.lon ?? 0
+                    lat: loc?.latitude ?? drive?.latitude ?? prev?.location.lat ?? 0,
+                    lon: loc?.longitude ?? drive?.longitude ?? prev?.location.lon ?? 0
                 )
             )
         )
