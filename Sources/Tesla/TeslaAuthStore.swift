@@ -152,11 +152,13 @@ final class TeslaAuthStore: ObservableObject {
 
         let trimmedClientId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedClientId.isEmpty else { throw TeslaAuthError.misconfigured("Missing Client ID") }
+        let trimmedAudience = audience.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var params = URLSearchParams()
         params.set("grant_type", "refresh_token")
         params.set("client_id", trimmedClientId)
         params.set("refresh_token", refresh)
+        params.set("audience", trimmedAudience.isEmpty ? TeslaConstants.defaultAudience : trimmedAudience)
 
         let trimmedSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSecret.isEmpty {

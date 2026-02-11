@@ -26,6 +26,7 @@
 - OAuth scope/권한
   - `vehicle_location` scope를 요청하도록 변경 (차량 위치/drive_state lat/lon 안정화)
   - authorize URL에 `prompt_missing_scopes=true` 추가 (나중에 scope 추가 시 재동의 유도)
+  - refresh token 갱신 시에도 `audience`를 포함하도록 수정 (갱신 후 Unauthorized 방지)
 
 ## 키 설정 (카카오)
 1. 카카오 개발자 콘솔에서 앱 생성
