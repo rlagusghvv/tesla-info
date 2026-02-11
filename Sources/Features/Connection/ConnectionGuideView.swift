@@ -353,12 +353,16 @@ struct ConnectionGuideView: View {
                     let locLon = formatDiagValue(diag.locationDataLongitude)
                     let rawLat = formatDiagValue(diag.rawLocationLatitude)
                     let rawLon = formatDiagValue(diag.rawLocationLongitude)
+                    let plainRawLat = formatDiagValue(diag.plainRawLocationLatitude)
+                    let plainRawLon = formatDiagValue(diag.plainRawLocationLongitude)
                     teslaAuth.statusMessage = """
                     vehicle_data OK, but location is missing.
                     drive_state: \(driveLat), \(driveLon)
                     location_data: \(locLat), \(locLon)
                     raw_fallback: \(rawLat), \(rawLon)
-                    response_keys: \(diag.responseKeys)
+                    response_keys(flagged): \(diag.responseKeys)
+                    raw_fallback(plain): \(plainRawLat), \(plainRawLon)
+                    response_keys(plain): \(diag.plainResponseKeys)
                     Try Wake + Refresh.
                     """
                 }

@@ -14,6 +14,7 @@ actor TeslaFleetService {
     private var cachedVehicle: TeslaVehicleSummary?
     private var lastSnapshot: VehicleSnapshot?
     private var lastDriveStateFallbackAttemptAt: Date?
+    private var lastPlainVehicleDataFallbackAttemptAt: Date?
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -89,6 +90,33 @@ actor TeslaFleetService {
             )
         }
 
+        // Some accounts appear to return sparse payloads when query params are attached.
+        // As a final fallback, retry without query params and use whichever snapshot is richer.
+        if !mapped.vehicle.location.isValid, shouldAttemptPlainVehicleDataFallback() {
+            do {
+                let plainData = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/vehicle_data", method: "GET")
+                let plainDecoded = try decoder.decode(TeslaVehicleDataEnvelope.self, from: plainData)
+                var plainMapped = TeslaMapper.mapVehicleDataToSnapshot(vehicleData: plainDecoded.response, fallback: vehicle, previous: mapped)
+                if !plainMapped.vehicle.location.isValid,
+                   let rawLocation = extractLocationFromRawJSON(plainData),
+                   let patchedVehicle = patchVehicle(from: rawLocation, existing: plainMapped.vehicle) {
+                    plainMapped = VehicleSnapshot(
+                        source: plainMapped.source,
+                        mode: plainMapped.mode,
+                        updatedAt: iso.string(from: Date()),
+                        lastCommand: plainMapped.lastCommand,
+                        vehicle: patchedVehicle
+                    )
+                }
+
+                if scoreSnapshot(plainMapped) > scoreSnapshot(mapped) {
+                    mapped = plainMapped
+                }
+            } catch {
+                // Non-fatal: keep original snapshot.
+            }
+        }
+
         lastSnapshot = mapped
         return mapped
     }
@@ -117,6 +145,15 @@ actor TeslaFleetService {
         let location = source.locationData
         let responseKeys = extractResponseKeysFromRawJSON(data)
         let rawLocation = extractLocationFromRawJSON(data)
+        var plainResponseKeys = ""
+        var plainRawLocation: TeslaLocationData?
+        do {
+            let plainData = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/vehicle_data", method: "GET")
+            plainResponseKeys = extractResponseKeysFromRawJSON(plainData).joined(separator: ", ")
+            plainRawLocation = extractLocationFromRawJSON(plainData)
+        } catch {
+            plainResponseKeys = "(plain request failed)"
+        }
 
         return SnapshotDiagnostics(
             mappedLocation: mapped.vehicle.location,
@@ -126,7 +163,10 @@ actor TeslaFleetService {
             locationDataLongitude: location?.longitude,
             rawLocationLatitude: rawLocation?.latitude,
             rawLocationLongitude: rawLocation?.longitude,
-            responseKeys: responseKeys.joined(separator: ", ")
+            responseKeys: responseKeys.joined(separator: ", "),
+            plainRawLocationLatitude: plainRawLocation?.latitude,
+            plainRawLocationLongitude: plainRawLocation?.longitude,
+            plainResponseKeys: plainResponseKeys
         )
     }
 
@@ -307,6 +347,28 @@ actor TeslaFleetService {
         return now.timeIntervalSince(last) > 25
     }
 
+    private func shouldAttemptPlainVehicleDataFallback(now: Date = Date()) -> Bool {
+        guard let last = lastPlainVehicleDataFallbackAttemptAt else {
+            lastPlainVehicleDataFallbackAttemptAt = now
+            return true
+        }
+        let allowed = now.timeIntervalSince(last) > 30
+        if allowed {
+            lastPlainVehicleDataFallbackAttemptAt = now
+        }
+        return allowed
+    }
+
+    private func scoreSnapshot(_ snapshot: VehicleSnapshot) -> Int {
+        var score = 0
+        if snapshot.vehicle.location.isValid { score += 10 }
+        if snapshot.vehicle.batteryLevel > 0 { score += 3 }
+        if snapshot.vehicle.estimatedRangeKm > 0 { score += 2 }
+        if snapshot.vehicle.odometerKm > 0 { score += 2 }
+        if snapshot.vehicle.displayName != "Vehicle" && snapshot.vehicle.displayName != "(Vehicle)" { score += 1 }
+        return score
+    }
+
     private func patchVehicle(from drive: TeslaDriveState, existing: VehicleData) -> VehicleData? {
         guard let lat = drive.latitude, let lon = drive.longitude else { return nil }
         let loc = VehicleLocation(lat: lat, lon: lon)
@@ -433,6 +495,9 @@ struct SnapshotDiagnostics {
     let rawLocationLatitude: Double?
     let rawLocationLongitude: Double?
     let responseKeys: String
+    let plainRawLocationLatitude: Double?
+    let plainRawLocationLongitude: Double?
+    let plainResponseKeys: String
 }
 
 enum TeslaFleetError: LocalizedError {

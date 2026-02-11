@@ -39,25 +39,32 @@ When resuming work, read this file first and continue from **[다음 단계]**.
     - `response.vehicle_data_combo.location_data`
   - If typed decoding misses location, snapshot mapping now applies this raw fallback patch.
 - Recompiled successfully after the raw fallback patch.
+- Added one more fallback strategy:
+  - If `vehicle_data` with query params is sparse, perform a secondary plain `GET /vehicle_data` (no query) and pick the richer snapshot.
+  - Added score-based selection between primary and plain fallback snapshots.
+- Diagnostics now compare both request variants:
+  - `response_keys(flagged)` / `raw_fallback(flagged)`
+  - `response_keys(plain)` / `raw_fallback(plain)`
+- Recompiled successfully after this fallback extension.
 
 ### [현재 상태]
 - Repo: `tesla-subdash-starter`
-- Latest pushed commit: `0135e29` (pushed to `origin/main`)
+- Latest pushed commit: `95337bd` (pushed to `origin/main`)
 - Local uncommitted changes:
-  - `Sources/Tesla/TeslaFleetService.swift` (raw location fallback + response key diagnostics)
-  - `Sources/Features/Connection/ConnectionGuideView.swift` (status text with response key/raw fallback)
+  - `Sources/Tesla/TeslaFleetService.swift` (plain vehicle_data fallback + scoring + comparative diagnostics)
+  - `Sources/Features/Connection/ConnectionGuideView.swift` (shows flagged/plain diagnostics)
   - `current_progress.md`
 - Known issue (not fixed yet):
   - iPad app still shows vehicle location as unknown / `(0,0)` in `Map` and `Navi` tabs.
   - Pressing `Wake` now shows "Waking up..." but location still doesn't appear.
 
 ### [다음 단계]
-- Commit + push the raw-response diagnostics patch.
+- Commit + push the plain-fallback patch.
 - Rebuild on iPad and run `Test Snapshot` to check:
   - `drive_state` coordinates
   - `location_data` coordinates
   - `raw_fallback` coordinates
-  - `response_keys`
+  - `response_keys(flagged)` and `response_keys(plain)`
 - If both are nil/0.0 even after wake:
   - verify Tesla-side location sharing for this OAuth client,
   - then capture a sanitized raw Fleet response via backend proxy for final root-cause isolation.
