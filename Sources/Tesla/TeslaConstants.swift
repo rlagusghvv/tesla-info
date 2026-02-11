@@ -8,6 +8,6 @@ enum TeslaConstants {
     static let defaultAudience = "https://fleet-api.prd.na.vn.cloud.tesla.com"
     static let defaultRedirectURI = "https://www.splui.com/oauth/callback"
 
-    static let scopes = "openid offline_access vehicle_device_data vehicle_cmds vehicle_charging_cmds"
+    // vehicle_location is required to reliably access drive_state latitude/longitude.
+    static let scopes = "openid offline_access vehicle_device_data vehicle_location vehicle_cmds vehicle_charging_cmds"
 }
-

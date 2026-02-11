@@ -96,6 +96,8 @@ final class TeslaAuthStore: ObservableObject {
             URLQueryItem(name: "state", value: state),
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
+            // When we add scopes later (ex: vehicle_location), this makes Tesla prompt only if missing.
+            URLQueryItem(name: "prompt_missing_scopes", value: "true"),
             URLQueryItem(name: "audience", value: trimmedAudience.isEmpty ? TeslaConstants.defaultAudience : trimmedAudience)
         ])
         return url

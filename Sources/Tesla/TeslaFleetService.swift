@@ -156,7 +156,8 @@ actor TeslaFleetService {
             let text = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
             let shortened = text.count > 600 ? String(text.prefix(600)) + "..." : text
 
-            if http.statusCode == 401 || http.statusCode == 403 {
+            // Tesla sometimes responds with non-401 status but "Unauthorized" payload.
+            if http.statusCode == 401 || http.statusCode == 403 || shortened.localizedCaseInsensitiveContains("\"error\":\"unauthorized\"") || shortened.localizedCaseInsensitiveContains("\"error\":\"Unauthorized\"") {
                 throw TeslaFleetError.unauthorized(shortened)
             }
             if http.statusCode == 429 {

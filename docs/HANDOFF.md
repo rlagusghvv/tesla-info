@@ -23,6 +23,9 @@
   - `vehicle_data`에서 위치가 안 오면 `data_request/drive_state`를 추가로 호출해 위치를 보강(25초 백오프)
   - 위치가 없으면 사이드 패널에 `Unknown (tap Wake)`로 표시
   - Navi 탭의 How-to 카드에 `Wake vehicle` 버튼 추가
+- OAuth scope/권한
+  - `vehicle_location` scope를 요청하도록 변경 (차량 위치/drive_state lat/lon 안정화)
+  - authorize URL에 `prompt_missing_scopes=true` 추가 (나중에 scope 추가 시 재동의 유도)
 
 ## 키 설정 (카카오)
 1. 카카오 개발자 콘솔에서 앱 생성
