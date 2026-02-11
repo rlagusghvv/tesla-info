@@ -23,17 +23,32 @@ When resuming work, read this file first and continue from **[다음 단계]**.
   - commit: `aef17c7`
   - branch: `main`
   - remote: `origin/main`
+- New diagnostics and wake behavior updates:
+  - Added `testSnapshotDiagnostics()` to inspect `drive_state` vs `location_data` coordinates directly.
+  - `Test Snapshot` now displays both sources (`drive_state`, `location_data`) when location is missing.
+  - Wake flow in Car Mode now auto-retries refresh multiple times (instead of one delayed refresh).
+- Compiled again successfully after the above changes.
 
 ### [현재 상태]
 - Repo: `tesla-subdash-starter`
 - Latest pushed commit: `aef17c7` (pushed to `origin/main`)
-- Working tree: clean (no local code changes)
+- Local uncommitted changes:
+  - `Sources/Tesla/TeslaFleetService.swift`
+  - `Sources/Features/Connection/ConnectionGuideView.swift`
+  - `Sources/Features/CarMode/CarModeView.swift`
+  - `current_progress.md`
 - Known issue (not fixed yet):
   - iPad app still shows vehicle location as unknown / `(0,0)` in `Map` and `Navi` tabs.
   - Pressing `Wake` now shows "Waking up..." but location still doesn't appear.
 
 ### [다음 단계]
-- Add a debug button to show which location fields are present in the raw `vehicle_data` response (sanitized).
+- Commit + push the new diagnostics/wake-retry changes.
+- Rebuild on iPad and run `Test Snapshot` to check:
+  - `drive_state` coordinates
+  - `location_data` coordinates
+- If both are nil/0.0 even after wake:
+  - verify Tesla-side location sharing for this OAuth client,
+  - then capture a sanitized raw Fleet response via backend proxy for final root-cause isolation.
 - If location is still missing after the above:
   - verify Tesla account/app has location sharing enabled for this OAuth client (Tesla-side setting),
   - and consider using a backend proxy to inspect raw JSON during debugging.

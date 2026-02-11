@@ -342,17 +342,31 @@ struct ConnectionGuideView: View {
         Task {
             defer { isTestingSnapshot = false }
             do {
-                let snap = try await TeslaFleetService.shared.fetchLatestSnapshot()
-                let loc = snap.vehicle.location
+                let diag = try await TeslaFleetService.shared.testSnapshotDiagnostics()
+                let loc = diag.mappedLocation
                 if loc.isValid {
                     teslaAuth.statusMessage = String(format: "vehicle_data OK. Location: %.5f, %.5f", loc.lat, loc.lon)
                 } else {
-                    teslaAuth.statusMessage = "vehicle_data OK, but location is missing (0,0). Try Wake + Refresh."
+                    let driveLat = formatDiagValue(diag.driveStateLatitude)
+                    let driveLon = formatDiagValue(diag.driveStateLongitude)
+                    let locLat = formatDiagValue(diag.locationDataLatitude)
+                    let locLon = formatDiagValue(diag.locationDataLongitude)
+                    teslaAuth.statusMessage = """
+                    vehicle_data OK, but location is missing.
+                    drive_state: \(driveLat), \(driveLon)
+                    location_data: \(locLat), \(locLon)
+                    Try Wake + Refresh.
+                    """
                 }
             } catch {
                 teslaAuth.statusMessage = error.localizedDescription
             }
         }
+    }
+
+    private func formatDiagValue(_ value: Double?) -> String {
+        guard let value else { return "nil" }
+        return String(format: "%.5f", value)
     }
 }
 

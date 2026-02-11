@@ -87,6 +87,31 @@ actor TeslaFleetService {
         return decoded.response?.count ?? 0
     }
 
+    func testSnapshotDiagnostics() async throws -> SnapshotDiagnostics {
+        let vehicle = try await resolveVehicle()
+        let data = try await request(
+            path: "/api/1/vehicles/\(vehicle.vinOrId)/vehicle_data",
+            method: "GET",
+            queryItems: [
+                URLQueryItem(name: "endpoints", value: Self.vehicleDataEndpoints),
+                URLQueryItem(name: "location_data", value: "true")
+            ]
+        )
+
+        let decoded = try decoder.decode(TeslaVehicleDataEnvelope.self, from: data)
+        let mapped = TeslaMapper.mapVehicleDataToSnapshot(vehicleData: decoded.response, fallback: vehicle, previous: lastSnapshot)
+        let drive = decoded.response.driveState
+        let location = decoded.response.locationData
+
+        return SnapshotDiagnostics(
+            mappedLocation: mapped.vehicle.location,
+            driveStateLatitude: drive?.latitude,
+            driveStateLongitude: drive?.longitude,
+            locationDataLatitude: location?.latitude,
+            locationDataLongitude: location?.longitude
+        )
+    }
+
     func sendCommand(_ command: String) async throws -> CommandResponse {
         let vehicle = try await resolveVehicle()
         // wake_up is not a /command endpoint on Fleet API.
@@ -313,6 +338,14 @@ actor TeslaFleetService {
     private func mphToKph(_ mph: Double) -> Double {
         mph * 1.60934
     }
+}
+
+struct SnapshotDiagnostics {
+    let mappedLocation: VehicleLocation
+    let driveStateLatitude: Double?
+    let driveStateLongitude: Double?
+    let locationDataLatitude: Double?
+    let locationDataLongitude: Double?
 }
 
 enum TeslaFleetError: LocalizedError {

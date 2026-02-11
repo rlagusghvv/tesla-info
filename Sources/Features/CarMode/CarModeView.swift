@@ -141,9 +141,15 @@ struct CarModeView: View {
                         wakeVehicle: {
                             viewModel.sendCommand("wake_up")
                             Task {
-                                // Give the vehicle a moment to wake before polling for fresh drive_state.
-                                try? await Task.sleep(nanoseconds: 8_000_000_000)
-                                await viewModel.refresh()
+                                // Wake can take a while; retry refresh multiple times to reduce manual tapping.
+                                for attempt in 0..<6 {
+                                    let waitSeconds = attempt == 0 ? 5 : 4
+                                    try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
+                                    await viewModel.refresh()
+                                    if viewModel.snapshot.vehicle.location.isValid {
+                                        break
+                                    }
+                                }
                             }
                         }
                     )
