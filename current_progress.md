@@ -46,20 +46,25 @@ When resuming work, read this file first and continue from **[다음 단계]**.
   - `response_keys(flagged)` / `raw_fallback(flagged)`
   - `response_keys(plain)` / `raw_fallback(plain)`
 - Recompiled successfully after this fallback extension.
+- Added wake diagnostics and clearer user guidance:
+  - `wake_up` response is now parsed and surfaced (`Wake accepted`, `Vehicle is online`, `Vehicle is still asleep`, etc.).
+  - Wake now performs short server-side polling and reports if location is still unavailable.
+  - If diagnostics show all location values are nil while `drive_state` key exists, app now shows a clear Tesla-side permission hint.
+- Recompiled successfully after wake/permission-hint patch.
 
 ### [현재 상태]
 - Repo: `tesla-subdash-starter`
-- Latest pushed commit: `95337bd` (pushed to `origin/main`)
+- Latest pushed commit: `d8a0833` (pushed to `origin/main`)
 - Local uncommitted changes:
-  - `Sources/Tesla/TeslaFleetService.swift` (plain vehicle_data fallback + scoring + comparative diagnostics)
-  - `Sources/Features/Connection/ConnectionGuideView.swift` (shows flagged/plain diagnostics)
+  - `Sources/Tesla/TeslaFleetService.swift` (wake response parsing + status message + polling)
+  - `Sources/Features/Connection/ConnectionGuideView.swift` (Tesla-side permission hint message)
   - `current_progress.md`
 - Known issue (not fixed yet):
   - iPad app still shows vehicle location as unknown / `(0,0)` in `Map` and `Navi` tabs.
   - Pressing `Wake` now shows "Waking up..." but location still doesn't appear.
 
 ### [다음 단계]
-- Commit + push the plain-fallback patch.
+- Commit + push wake/permission-hint patch.
 - Rebuild on iPad and run `Test Snapshot` to check:
   - `drive_state` coordinates
   - `location_data` coordinates

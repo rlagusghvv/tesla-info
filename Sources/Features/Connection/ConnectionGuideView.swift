@@ -355,6 +355,20 @@ struct ConnectionGuideView: View {
                     let rawLon = formatDiagValue(diag.rawLocationLongitude)
                     let plainRawLat = formatDiagValue(diag.plainRawLocationLatitude)
                     let plainRawLon = formatDiagValue(diag.plainRawLocationLongitude)
+                    let likelyTeslaScopeFilter =
+                        diag.driveStateLatitude == nil &&
+                        diag.driveStateLongitude == nil &&
+                        diag.locationDataLatitude == nil &&
+                        diag.locationDataLongitude == nil &&
+                        diag.rawLocationLatitude == nil &&
+                        diag.rawLocationLongitude == nil &&
+                        diag.plainRawLocationLatitude == nil &&
+                        diag.plainRawLocationLongitude == nil &&
+                        (diag.responseKeys.contains("drive_state") || diag.plainResponseKeys.contains("drive_state"))
+
+                    let hint = likelyTeslaScopeFilter
+                        ? "\nLikely Tesla-side location permission filtering. In Tesla app: Security & Privacy > Security > Third Party Apps > Manage this app > enable Vehicle Location. Then retry after a short delay."
+                        : ""
                     teslaAuth.statusMessage = """
                     vehicle_data OK, but location is missing.
                     drive_state: \(driveLat), \(driveLon)
@@ -363,7 +377,7 @@ struct ConnectionGuideView: View {
                     response_keys(flagged): \(diag.responseKeys)
                     raw_fallback(plain): \(plainRawLat), \(plainRawLon)
                     response_keys(plain): \(diag.plainResponseKeys)
-                    Try Wake + Refresh.
+                    Try Wake + Refresh.\(hint)
                     """
                 }
             } catch {

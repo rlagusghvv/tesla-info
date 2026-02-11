@@ -174,21 +174,35 @@ actor TeslaFleetService {
         let vehicle = try await resolveVehicle()
         // wake_up is not a /command endpoint on Fleet API.
         if command == "wake_up" {
-            _ = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/wake_up", method: "POST", body: Data("{}".utf8))
-            let message = "Waking up..."
+            let data = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/wake_up", method: "POST", body: Data("{}".utf8))
+            let wakeInfo = parseWakeResponse(data)
+            var message = wakeInfo.message
 
             let log = CommandLog(
                 command: command,
-                ok: true,
-                message: message,
+                ok: wakeInfo.ok,
+                message: wakeInfo.message,
                 at: iso.string(from: Date())
             )
 
             var latest: VehicleSnapshot?
-            do {
-                latest = try await fetchLatestSnapshot()
-            } catch {
-                latest = nil
+            if wakeInfo.ok {
+                // Give the car a short window to wake and publish location.
+                for attempt in 0..<5 {
+                    if attempt > 0 {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    }
+                    if let snap = try? await fetchLatestSnapshot() {
+                        latest = snap
+                        if snap.vehicle.location.isValid {
+                            break
+                        }
+                    }
+                }
+            }
+
+            if wakeInfo.ok, let latest, !latest.vehicle.location.isValid {
+                message = "Wake sent, but location is still unavailable."
             }
 
             let snapshot = latest.map { snap in
@@ -202,7 +216,7 @@ actor TeslaFleetService {
             }
 
             return CommandResponse(
-                ok: true,
+                ok: wakeInfo.ok,
                 message: message,
                 details: nil,
                 snapshot: snapshot
@@ -483,6 +497,38 @@ actor TeslaFleetService {
         default:
             return nil
         }
+    }
+
+    private func parseWakeResponse(_ data: Data) -> (ok: Bool, message: String) {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (true, "Waking up...")
+        }
+        guard let response = json["response"] else {
+            return (true, "Waking up...")
+        }
+
+        if let dict = response as? [String: Any] {
+            if let result = dict["result"] as? Bool {
+                let reason = (dict["reason"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if result {
+                    return (true, reason?.isEmpty == false ? reason! : "Wake accepted.")
+                }
+                return (false, reason?.isEmpty == false ? reason! : "Wake failed.")
+            }
+
+            if let state = dict["state"] as? String {
+                let lowered = state.lowercased()
+                if lowered == "online" {
+                    return (true, "Vehicle is online.")
+                }
+                if lowered == "asleep" {
+                    return (false, "Vehicle is still asleep.")
+                }
+                return (true, "Wake response state: \(state)")
+            }
+        }
+
+        return (true, "Waking up...")
     }
 }
 
