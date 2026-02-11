@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadEnvFile, upsertEnvFile } from './env.mjs';
+import { exchangeAuthorizationCode, maskToken } from './tesla_oauth_common.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9,15 +10,17 @@ const rootEnv = path.resolve(__dirname, '../.env');
 
 loadEnvFile(rootEnv);
 
-const code = process.argv[2] || '';
+const codeInput = process.argv[2] || '';
 const clientId = process.env.TESLA_CLIENT_ID || '';
 const clientSecret = process.env.TESLA_CLIENT_SECRET || '';
 const redirectUri = process.env.TESLA_REDIRECT_URI || '';
 const codeVerifier = process.env.TESLA_CODE_VERIFIER || '';
 const audience = process.env.TESLA_AUDIENCE || process.env.TESLA_FLEET_API_BASE || 'https://fleet-api.prd.na.vn.cloud.tesla.com';
 
-if (!code) {
-  console.error('[oauth:exchange] Missing code argument. Usage: node backend/tesla_oauth_exchange_code.mjs <code>');
+if (!codeInput) {
+  console.error(
+    '[oauth:exchange] Missing argument. Usage: node backend/tesla_oauth_exchange_code.mjs <code-or-callback-url>'
+  );
   process.exit(1);
 }
 
@@ -31,48 +34,24 @@ if (!codeVerifier) {
   process.exit(1);
 }
 
-const tokenUrl = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
-
-const body = new URLSearchParams();
-body.set('grant_type', 'authorization_code');
-body.set('client_id', clientId);
-body.set('client_secret', clientSecret);
-body.set('code', code);
-body.set('code_verifier', codeVerifier);
-body.set('audience', audience);
-body.set('redirect_uri', redirectUri);
-
-const res = await fetch(tokenUrl, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/x-www-form-urlencoded'
-  },
-  body
-});
-
-const text = await res.text();
-let parsed;
+let exchanged;
 try {
-  parsed = text ? JSON.parse(text) : {};
-} catch {
-  parsed = { raw: text };
-}
-
-if (!res.ok) {
-  console.error('[oauth:exchange] Token exchange failed:', parsed?.error_description || parsed?.error || text);
-  process.exit(2);
-}
-
-const accessToken = parsed?.access_token;
-const refreshToken = parsed?.refresh_token;
-const expiresIn = Number(parsed?.expires_in || 0);
-
-if (!accessToken) {
-  console.error('[oauth:exchange] Missing access_token in response.');
+  exchanged = await exchangeAuthorizationCode({
+    codeInput,
+    clientId,
+    clientSecret,
+    redirectUri,
+    codeVerifier,
+    audience
+  });
+} catch (error) {
+  console.error('[oauth:exchange]', error instanceof Error ? error.message : 'Token exchange failed.');
   process.exit(3);
 }
 
-const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : '';
+const accessToken = exchanged.accessToken;
+const refreshToken = exchanged.refreshToken;
+const expiresAt = exchanged.expiresAt;
 
 upsertEnvFile(rootEnv, {
   TESLA_USER_ACCESS_TOKEN: accessToken,
@@ -83,17 +62,10 @@ upsertEnvFile(rootEnv, {
 });
 
 console.log('[oauth:exchange] OK. Saved TESLA_USER_ACCESS_TOKEN (+ refresh token if provided) to .env');
-console.log(`[oauth:exchange] access_token=${mask(accessToken)}`);
+console.log(`[oauth:exchange] access_token=${maskToken(accessToken)}`);
 if (refreshToken) {
-  console.log(`[oauth:exchange] refresh_token=${mask(refreshToken)}`);
+  console.log(`[oauth:exchange] refresh_token=${maskToken(refreshToken)}`);
 }
 if (expiresAt) {
   console.log(`[oauth:exchange] expires_at=${expiresAt}`);
-}
-
-function mask(token) {
-  if (!token || token.length < 16) {
-    return '(short)';
-  }
-  return token.slice(0, 8) + '...' + token.slice(-6);
 }

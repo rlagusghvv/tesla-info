@@ -588,3 +588,252 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 
 ### [특이 사항]
 - 기존 워크트리 변경사항을 그대로 보존한 채 일괄 커밋 예정.
+
+## 2026-02-11 (추가 업데이트 @18:00)
+
+### [완료된 작업]
+- 중단된 카카오맵/UI 작업 재개를 위해 프로젝트 루트에서 `ls -R` 재스캔 수행.
+- 카카오 네비/레이아웃 관련 변경 파일 점검 완료:
+  - `Sources/Kakao/KakaoConfigStore.swift`
+  - `Sources/Features/Navi/KakaoWebRouteMapView.swift`
+  - `Sources/Features/Navi/KakaoNavigationPaneView.swift`
+  - `Sources/Features/CarMode/CarModeView.swift`
+  - `Sources/Features/Connection/ConnectionGuideView.swift`
+- 빌드 검증 완료:
+  - `xcodebuild -project TeslaSubDash.xcodeproj -scheme TeslaSubDash -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
+  - 결과: `BUILD SUCCEEDED`
+- 기능 반영 상태 정리:
+  - Kakao JavaScript Key 저장/로드 추가(Keychain)
+  - Navi 탭에서 JS Key 존재 시 `WKWebView` 기반 Kakao 지도 렌더링
+  - JS Key 미설정 시 Apple Map fallback 유지
+  - 네비 메인 컨텐츠(지도/경로) 비중 확대, 검색/결과는 오버레이 패널로 축소
+  - 우측 차량 정보/컨트롤 패널 폭 및 버튼 크기 축소(센터 컨텐츠 가시성 우선)
+
+### [현재 상태]
+- 카카오맵 연동 작업은 코드/빌드 기준으로 완료 상태.
+- 워크트리에 미커밋 변경이 남아 있으며, 실제 iPad에서 시각 확인/튜닝만 남음.
+
+### [다음 단계]
+- iPad 실기기에서 Account -> Kakao:
+  - REST Key 입력
+  - JavaScript Key 입력
+- Navi 탭에서 Kakao 지도 렌더링/경로 오버레이/검색 안정성 최종 확인.
+- 필요 시 폰트/패딩/버튼 밀도 1회 추가 미세조정 후 커밋/푸시.
+
+### [특이 사항]
+- 빌드 로그에는 CoreSimulator 연결 경고가 있었으나 컴파일/링크 자체는 정상 통과함.
+
+## 2026-02-11 (추가 업데이트 @20:06)
+
+### [완료된 작업]
+- 사용자 제공 맥미니 운영 구조(8787 토큰 보호)와 앱 연동을 위한 클라이언트 인증 반영 완료.
+- 앱 설정 확장:
+  - `Sources/Features/Shared/AppConfig.swift`
+  - Keychain 기반 `backend.api.token` 저장/조회 추가
+  - `Authorization`/`X-Api-Key` 헤더용 토큰 정규화 로직 추가
+- 백엔드 호출 헤더 적용:
+  - `Sources/Telemetry/TelemetryService.swift`
+  - backend 모드 요청 시 자동으로
+    - `Authorization: Bearer <token>`
+    - `X-Api-Key: <token>`
+    헤더 전송
+- 연결 화면 UI 확장:
+  - `Sources/Features/Connection/ConnectionGuideView.swift`
+  - Backend API Token 입력/숨김/저장 버튼 추가
+  - `probeBackendHealth`에도 동일 인증 헤더 적용
+  - Quick backend 후보에 맥미니 주소 추가: `http://192.168.0.30:8787`
+- 빌드 검증:
+  - `xcodebuild -project TeslaSubDash.xcodeproj -scheme TeslaSubDash -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
+  - 결과: `BUILD SUCCEEDED`
+
+### [현재 상태]
+- iPad 앱이 토큰 보호된 맥미니 backend(8787)에 인증 헤더를 포함해 접근 가능한 상태.
+- 남은 작업은 실기기에서 토큰 입력 후 연결 확인.
+
+### [다음 단계]
+- iPad 앱 Account(Setup)에서:
+  - `Backend URL = http://192.168.0.30:8787`
+  - `Backend API Token = <BACKEND_API_TOKEN>`
+  - `Save URL`, `Save Token`, `Test Backend` 순서로 확인
+- Car Mode 진입 후 Map/Navi/명령 버튼 동작 확인.
+
+### [특이 사항]
+- 서버 구현이 `/health`를 무인증으로 열어도 문제없고, 인증 요구로 바뀌어도 앱이 헤더를 보내도록 선반영됨.
+
+## 2026-02-11 (추가 업데이트 @Tunnel handoff prep)
+
+### [완료된 작업]
+- Cloudflare Tunnel 연동 핸드오프 작성을 위해 iPad 앱/백엔드 호출 경로 재검증.
+- 앱 측 확인:
+  - `TelemetryService`가 backend 모드에서 `/api/vehicle/latest`, `/api/vehicle/command` 호출.
+  - `Authorization` + `X-Api-Key` 헤더 자동 추가 로직 적용 상태 확인.
+  - `AppConfig`에서 backend base URL override 및 backend token(Keychain) 저장/조회 가능 확인.
+  - `ConnectionGuideView`에서 Backend URL + Backend API Token 입력/저장 UI 확인.
+- 백엔드 측 확인:
+  - 공개 health endpoint: `GET /health`
+  - 앱 핵심 API: `GET /api/vehicle/latest`, `POST /api/vehicle/command`
+  - 보조 API: `/api/teslamate/*`, `/api/vehicle/poll-now`, `/api/tesla/poll-now`
+
+### [현재 상태]
+- Cloudflare Tunnel 경유 외부 base URL(`https://tesla.splui.com`)로 앱 전환을 위한 정보 정리 완료.
+- 실제 맥미니의 Zero Trust Public Hostname/Access 정책 적용 여부는 운영 환경에서 최종 확인 필요.
+
+### [다음 단계]
+- 운영자에게 전달할 최종 핸드오프(설정값/검증 커맨드/앱 입력값) 공유.
+- 필요 시 Access(Service Token)까지 적용한 고보안 버전으로 앱 헤더 확장.
+
+### [특이 사항]
+- 현재 로컬 작업본 `backend/server.mjs`에서는 `/api/*` 인증 검증 코드는 직접 확인되지 않음.
+- 맥미니 운영본에서 `BACKEND_API_TOKEN` 401 강제 여부는 반드시 실제 curl로 검증해야 함.
+
+## 2026-02-11 (추가 업데이트 @21:45)
+
+### [완료된 작업]
+- 작업 재개 절차 준수:
+  - 워크스페이스 루트에서 `ls -R` 재스캔.
+  - `current_progress.md` 선확인 후 기존 다음 단계 기준으로 이어서 작업.
+- Direct Fleet 디버깅 4개 항목 반영:
+  1) `Test Vehicles` 최종 호출 URL 노출
+  - `TeslaFleetService.testVehiclesDiagnostics()` 추가/활용.
+  - 실제 요청 URL + 네트워크 경로 요약을 UI 상태 메시지에 출력.
+  2) URLSession 에러 분기 강화
+  - `TeslaFleetError.network(url:code:pathSummary:detail)` 경로에서
+    - `URLError.timedOut`
+    - `URLError.cannotFindHost`
+    - `URLError.cannotConnectToHost`
+    를 명시적으로 구분해 표시.
+  3) Keychain 값 trim 강화
+  - `TeslaAuthStore.loadConfig()`에서 `clientId/clientSecret/redirectURI/audience/fleetApiBase` 로드 시 공백/개행 제거 후 적용.
+  4) NWPathMonitor 진단 로깅 추가
+  - `FleetNetworkProbe` 추가:
+    - path 상태 변경 시 `[fleet:path] ...` 로그 출력
+    - `status/interface/ipv4/ipv6/dns/expensive/constrained` 스냅샷 제공
+  - 모든 Fleet 요청에서 `[fleet:request] METHOD URL | path=...` 로그 출력.
+- 빌드 검증 완료:
+  - `xcodebuild -project TeslaSubDash.xcodeproj -scheme TeslaSubDash -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
+  - 결과: `BUILD SUCCEEDED`
+
+### [현재 상태]
+- Direct Fleet 진단 가시성이 강화됨.
+- `Test Vehicles` 버튼으로 실제 호출 URL + 현재 네트워크 경로를 iPad UI에서 바로 확인 가능.
+- 네트워크 실패 유형(timeout/DNS/host connect)을 UI에서 즉시 구분 가능.
+
+### [다음 단계]
+- iPad에서 Direct Fleet 모드로 `Test Vehicles` 실행 후 다음 2줄 확인:
+  - `URL: https://.../api/1/vehicles`
+  - `Network: status=... iface=... ipv4=... ipv6=... dns=...`
+- 실패 시 표시되는 에러 코드(`timedOut/cannotFindHost/cannotConnectToHost`)와 함께 스크린샷 수집.
+- 해당 결과를 기반으로 endpoint/네트워크/토큰 문제를 분리 진단.
+
+### [특이 사항]
+- 빌드 로그에 CoreSimulator 경고가 있었지만 최종 컴파일/링크는 정상 통과.
+
+## 2026-02-11 (추가 업데이트 @21:55 안정성 패치)
+
+### [완료된 작업]
+- 사용자 보고 이슈 재현 신호 분석:
+  - iPad 화면상 오류가 `URLError(-999)`(cancelled)로 반복 표시됨.
+  - 이는 실제 서버 다운보다, 화면 전환/폴링 중 취소된 요청이 오류처럼 노출되는 문제에 가까움.
+- 네트워크 취소 에러 무해화:
+  - `TelemetryService.request()`에서 `URLError.cancelled`를 `CancellationError`로 변환.
+  - `TeslaFleetService.requestWithMetadata()`에서도 동일 처리.
+  - `CarModeViewModel`에서 `CancellationError` / `URLError.cancelled`는 무시하도록 적용.
+- 폴링/UI 갱신 안정화:
+  - `CarModeViewModel`에 snapshot 의미 변화 비교(`shouldReplaceSnapshot`) 추가.
+  - 실질 변화가 없으면 snapshot 재할당을 피해서 불필요한 SwiftUI 재렌더 감소.
+  - 반복 동일 오류 메시지 중복 노출 방지 및 오류 메시지 길이 제한(220자) 추가.
+- 네비 렌더링 부하 완화:
+  - `KakaoNavigationViewModel.updateVehicle()`에 좌표/속도 변화 임계치 적용(미세 변화 무시).
+  - `KakaoWebRouteMapView`에 payload signature dedup 추가(동일 상태의 JS 재주입 차단).
+  - WebView 준비 전 payload는 보류했다가 `didFinish` 후 1회 적용.
+- UX 안전장치:
+  - `ConnectionGuideView.saveBackendURL()` 실행 시 Telemetry Source를 자동으로 `Backend`로 전환.
+  - `CarModeView` 에러 카드 텍스트 line limit 추가(긴 에러로 인한 레이아웃 부하 완화).
+  - `TeslaFleetService.buildURL()`에서 Direct Fleet base 검증 강화:
+    - `https` + `tesla.com` host가 아니면 명확한 misconfigured 안내 반환.
+- 빌드 검증:
+  - `xcodebuild -project TeslaSubDash.xcodeproj -scheme TeslaSubDash -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
+  - 결과: `BUILD SUCCEEDED`
+
+### [현재 상태]
+- `URLError(-999)`가 실제 장애처럼 계속 빨간 에러로 쌓이는 현상은 코드상 차단됨.
+- 폴링/네비 지도 렌더링 시 불필요한 업데이트가 줄어 앱 멈춤 빈도 완화가 기대됨.
+
+### [다음 단계]
+- iPad 실기기에서 10~15분 연속 사용 확인:
+  - Map/Navi 탭 전환 반복
+  - 검색 입력 중 멈춤 여부
+  - Wake/Refresh 반복 시 UI 프리즈 여부
+- 여전히 프리즈가 남으면 Instruments(Time Profiler) 기준으로 `WKWebView`/`Map`/`SwiftUI diff` hot path 추가 추적.
+
+### [특이 사항]
+- 현재 워크트리는 기존 미커밋 변경이 많으므로, 이번 패치 커밋 시 파일 선택 커밋 권장.
+
+## 2026-02-11 (추가 업데이트 @22:05 모달 프리즈 안정화)
+
+### [완료된 작업]
+- 작업 재개 절차 재확인:
+  - 워크스페이스 루트 `ls -R` 재실행
+  - `current_progress.md` 선확인 후 이어서 작업
+- `CarModeView.swift` 컴파일 오류 수정:
+  - 원인: `if/else` 뷰 블록에 직접 `.frame` 체인을 붙여 SwiftUI 타입 추론 실패
+  - 조치: `Group { if ... }`로 감싼 뒤 `.frame(width: sideWidth)` 적용
+- 빌드 재검증 완료:
+  - `xcodebuild -project TeslaSubDash.xcodeproj -scheme TeslaSubDash -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`
+  - 결과: `BUILD SUCCEEDED`
+
+### [현재 상태]
+- 계정 모달/세팅 시트 표시 중에도 크래시 없이 빌드 가능한 상태로 복구됨.
+- 직전 안정화 패치(요청 취소 무시, 폴링 중지, 렌더 dedup)는 유지됨.
+
+### [다음 단계]
+- iPad 실기기에서 다음 재현 시나리오로 멈춤 여부 확인:
+  - Car Mode 진입 -> Account 열기/닫기 반복
+  - Account 열린 상태에서 20~30초 대기
+  - Map/Navi 전환 후 검색 입력
+- 동일 프리즈가 남으면 `showSetupSheet` 동안 center panel을 현재 placeholder 유지 vs 기존 live view 복귀를 토글 가능한 실험 플래그로 분리.
+
+### [특이 사항]
+- 워크트리는 원래부터 다수 파일이 dirty 상태이므로, 이후 커밋은 파일 선택 커밋 권장.
+
+## 2026-02-11 (추가 업데이트 @22:35 TeslaMate 토큰 발급/연동 자동화)
+
+### [완료된 작업]
+- 작업 재개 절차 재확인:
+  - 워크스페이스 루트 `ls -R` 재실행
+  - `current_progress.md` 선확인 후 이어서 작업
+- 백엔드 토큰 발급 흐름 보강:
+  - 신규 파일 `backend/tesla_oauth_common.mjs` 추가
+  - `code` 또는 `callback URL`에서 code를 안전하게 파싱하는 로직 추가
+  - authorization code -> access/refresh token 교환 공통 함수 추가
+- 기존 교환 스크립트 개선:
+  - `backend/tesla_oauth_exchange_code.mjs`가 이제 `<code>` 뿐 아니라 `<full callback url>`도 입력 허용
+- TeslaMate 런타임 토큰 주입 자동화 추가:
+  - 신규 파일 `backend/teslamate_token_bridge.mjs` 추가
+  - `docker exec <teslamate-container> /opt/app/bin/teslamate rpc ...`로 `TeslaMate.Auth.save(%{token, refresh_token})` + sign-in 수행
+- 원클릭 교환+동기화 스크립트 추가:
+  - 신규 파일 `backend/tesla_oauth_exchange_and_sync.mjs`
+  - 기능: 토큰 교환 -> `.env` 저장 -> TeslaMate 런타임 세션 동기화
+- npm 스크립트 추가:
+  - `tesla:oauth:exchange:sync`
+- 문서/가이드 업데이트:
+  - `README.md`에 one-step 동기화 명령 추가
+  - `pages/public/oauth/callback/index.html`의 안내 명령을 `tesla:oauth:exchange:sync` 기준으로 갱신
+- 검증:
+  - `node --check`로 신규/수정 스크립트 문법 통과 확인
+
+### [현재 상태]
+- 이제 callback URL 전체를 그대로 넣어도 백엔드에서 토큰 교환 가능.
+- TeslaMate 컨테이너가 실행 중이면 토큰을 런타임에 바로 주입해 차량 수집 재개 경로까지 자동화됨.
+
+### [다음 단계]
+- 실제 실행:
+  - `npm run tesla:oauth:exchange:sync -- "<callback_url_or_code>"`
+- 실행 후 확인:
+  - `curl http://127.0.0.1:8787/api/teslamate/status`
+  - `curl http://127.0.0.1:8787/api/vehicle/latest`
+- 컨테이너 이름이 다르면 `.env`에 `TESLAMATE_CONTAINER_NAME=<actual_name>` 추가.
+
+### [특이 사항]
+- TeslaMate 런타임 동기화는 로컬에 `docker`와 대상 컨테이너가 있어야 동작.
+- 백엔드가 공개 인터넷에 열려 있어도 이번 자동화는 CLI 기반이라 외부 호출 엔드포인트를 추가하지 않음.

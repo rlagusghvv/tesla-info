@@ -144,6 +144,12 @@ Exchange the code:
 npm run tesla:oauth:exchange -- <PASTE_CODE_HERE>
 ```
 
+If you are using TeslaMate and want one-step runtime sync too:
+
+```bash
+npm run tesla:oauth:exchange:sync -- "<FULL_CALLBACK_URL_OR_CODE>"
+```
+
 Verify token and vehicle list:
 
 ```bash

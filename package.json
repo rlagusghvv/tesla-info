@@ -15,6 +15,7 @@
     "tesla:partner:register": "node backend/tesla_partner_register.mjs",
     "tesla:oauth:start": "node backend/tesla_oauth_start.mjs",
     "tesla:oauth:exchange": "node backend/tesla_oauth_exchange_code.mjs",
-    "tesla:oauth:refresh": "node backend/tesla_oauth_refresh.mjs"
+    "tesla:oauth:refresh": "node backend/tesla_oauth_refresh.mjs",
+    "tesla:oauth:exchange:sync": "node backend/tesla_oauth_exchange_and_sync.mjs"
   }
 }
