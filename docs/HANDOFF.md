@@ -74,3 +74,27 @@
   - `Test Vehicles`: `/api/1/vehicles` 호출 확인
   - `Test Snapshot`: `/vehicle_data` 호출 확인(여기서 Unauthorized가 나면 scope/audience 문제일 확률이 높음)
   - `Diagnostics`에서 JWT `aud`/`scopes`를 확인 가능 (Debug 빌드)
+
+---
+
+# Update (2026-02-11)
+
+## 해결하려는 문제
+- 공식 Tesla 앱에서는 차량 위치가 잘 보이는데, 이 앱의 Fleet API `vehicle_data`는 위치가 `(0,0)`으로 나오는 케이스가 있었음.
+- `Wake` 버튼이 종종 "Please sign in again"처럼 보여서(실제로는 wake 엔드포인트/호출 방식 문제일 가능성) UX가 혼란스러웠음.
+
+## 오늘 반영된 변경점
+- Fleet API `vehicle_data` 호출에 `location_data` 포함
+  - Tesla 차량 펌웨어 `2023.38+`에서는 위치가 기본적으로 반환되지 않을 수 있어서, `endpoints`에 `location_data`를 명시적으로 추가.
+  - 적용 파일: `Sources/Tesla/TeslaFleetService.swift`
+- `wake_up` 엔드포인트 수정
+  - `wake_up`은 Fleet API에서 `/command/wake_up`이 아니라 `/wake_up`로 호출해야 함.
+  - 적용 파일: `Sources/Tesla/TeslaFleetService.swift`
+- VIN 우선 사용
+  - 저장된 VIN이 있으면 먼저 사용하도록 변경(문서/엔드포인트 규격과 일치시키기 위함).
+  - 적용 파일: `Sources/Tesla/TeslaFleetService.swift`
+
+## 확인 방법 (iPad)
+1. `Account` 화면에서 `Test Vehicles` -> `Vehicles: 1`이면 OK.
+2. `Test Snapshot` -> 위치가 `0,0`이 아니면 성공.
+3. Car Mode에서 `Wake` 누른 뒤 5-10초 후 `Refresh` -> 위치 갱신 확인.

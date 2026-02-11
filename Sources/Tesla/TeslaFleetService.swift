@@ -3,6 +3,10 @@ import Foundation
 actor TeslaFleetService {
     static let shared = TeslaFleetService()
 
+    // Tesla firmware 2023.38+ does not return location in drive_state unless you request `location_data`.
+    // Keep this list minimal to reduce payload size (and rate-limit risk).
+    private static let vehicleDataEndpoints = "drive_state;location_data;charge_state;climate_state;vehicle_state"
+
     private let session: URLSession
     private let decoder = JSONDecoder()
     private let iso = ISO8601DateFormatter()
@@ -20,7 +24,13 @@ actor TeslaFleetService {
 
     func fetchLatestSnapshot() async throws -> VehicleSnapshot {
         let vehicle = try await resolveVehicle()
-        let data = try await request(path: "/api/1/vehicles/\(vehicle.identifier)/vehicle_data", method: "GET")
+        let data = try await request(
+            path: "/api/1/vehicles/\(vehicle.vinOrId)/vehicle_data",
+            method: "GET",
+            queryItems: [
+                URLQueryItem(name: "endpoints", value: Self.vehicleDataEndpoints)
+            ]
+        )
         let decoded = try decoder.decode(TeslaVehicleDataEnvelope.self, from: data)
         var mapped = TeslaMapper.mapVehicleDataToSnapshot(vehicleData: decoded.response, fallback: vehicle, previous: lastSnapshot)
 
@@ -29,7 +39,7 @@ actor TeslaFleetService {
         if !mapped.vehicle.location.isValid, shouldAttemptDriveStateFallback() {
             lastDriveStateFallbackAttemptAt = Date()
             do {
-                let driveData = try await request(path: "/api/1/vehicles/\(vehicle.identifier)/data_request/drive_state", method: "GET")
+                let driveData = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/data_request/drive_state", method: "GET")
                 let driveEnvelope = try decoder.decode(TeslaDriveStateEnvelope.self, from: driveData)
                 if let patchedVehicle = patchVehicle(from: driveEnvelope.response, existing: mapped.vehicle) {
                     mapped = VehicleSnapshot(
@@ -57,7 +67,44 @@ actor TeslaFleetService {
 
     func sendCommand(_ command: String) async throws -> CommandResponse {
         let vehicle = try await resolveVehicle()
-        let data = try await request(path: "/api/1/vehicles/\(vehicle.identifier)/command/\(command)", method: "POST", body: Data("{}".utf8))
+        // wake_up is not a /command endpoint on Fleet API.
+        if command == "wake_up" {
+            _ = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/wake_up", method: "POST", body: Data("{}".utf8))
+            let message = "Waking up..."
+
+            let log = CommandLog(
+                command: command,
+                ok: true,
+                message: message,
+                at: iso.string(from: Date())
+            )
+
+            var latest: VehicleSnapshot?
+            do {
+                latest = try await fetchLatestSnapshot()
+            } catch {
+                latest = nil
+            }
+
+            let snapshot = latest.map { snap in
+                VehicleSnapshot(
+                    source: snap.source,
+                    mode: snap.mode,
+                    updatedAt: snap.updatedAt,
+                    lastCommand: log,
+                    vehicle: snap.vehicle
+                )
+            }
+
+            return CommandResponse(
+                ok: true,
+                message: message,
+                details: nil,
+                snapshot: snapshot
+            )
+        }
+
+        let data = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/command/\(command)", method: "POST", body: Data("{}".utf8))
         let decoded = try decoder.decode(TeslaCommandEnvelope.self, from: data)
         let ok = decoded.response?.result ?? true
         let reason = decoded.response?.reason
@@ -100,15 +147,15 @@ actor TeslaFleetService {
             return cachedVehicle
         }
 
+        if let vin = KeychainStore.getString(Keys.selectedVin), !vin.isEmpty {
+            cachedVehicle = TeslaVehicleSummary(vin: vin, displayName: "(Vehicle)", state: "unknown")
+            return cachedVehicle!
+        }
+
         if let idText = KeychainStore.getString(Keys.selectedVehicleId),
            let id = Int64(idText),
            id > 0 {
             cachedVehicle = TeslaVehicleSummary(id: id, vin: "", displayName: "(Vehicle)", state: "unknown")
-            return cachedVehicle!
-        }
-
-        if let vin = KeychainStore.getString(Keys.selectedVin), !vin.isEmpty {
-            cachedVehicle = TeslaVehicleSummary(vin: vin, displayName: "(Vehicle)", state: "unknown")
             return cachedVehicle!
         }
 
@@ -131,7 +178,7 @@ actor TeslaFleetService {
         return first
     }
 
-    private func request(path: String, method: String, body: Data? = nil) async throws -> Data {
+    private func request(path: String, method: String, queryItems: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
         let token = try await TeslaAuthStore.shared.ensureValidAccessToken()
         let base = (KeychainStore.getString(Keys.fleetApiBase) ?? TeslaConstants.defaultFleetApiBase).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let baseURL = URL(string: base.hasSuffix("/") ? base : "\(base)/") else {
@@ -141,7 +188,21 @@ actor TeslaFleetService {
             throw TeslaFleetError.misconfigured("Invalid API path.")
         }
 
-        var request = URLRequest(url: url)
+        var finalURL = url
+        if !queryItems.isEmpty {
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+                throw TeslaFleetError.misconfigured("Invalid API URL.")
+            }
+            var merged = components.queryItems ?? []
+            merged.append(contentsOf: queryItems)
+            components.queryItems = merged
+            guard let updated = components.url else {
+                throw TeslaFleetError.misconfigured("Invalid API URL.")
+            }
+            finalURL = updated
+        }
+
+        var request = URLRequest(url: finalURL)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -271,6 +332,12 @@ private struct TeslaVehicleSummary: Decodable {
         if let id {
             return String(id)
         }
+        return vin
+    }
+
+    var vinOrId: String {
+        if !vin.isEmpty { return vin }
+        if let id { return String(id) }
         return vin
     }
 }
