@@ -20,6 +20,12 @@
 
 ## 2026-02-12
 
+### 15:36 KST — data (process hardening)
+- 대표 요청: 컨텍스트/모델/세션이 바뀌어도 역할/프로세스/규칙이 초기화되지 않도록 중심 문서에 고정
+- 조치: `docs/OPERATING_RULES.md` 추가 (역할/텔레그램 사용 규칙/MD 핸드오프/"완료!" 룰/민감정보 금지)
+- 다음: 팀장/정리삼이 운영 중 변경된 룰을 이 문서에만 업데이트하도록 고정
+
+
 ### 15:19 KST — data (Media overlay resize UX / iPad mini 6)
 - 이슈: Media 탭 “사이즈 키우기/줄이기” 버튼이 패널 리사이즈가 아니라 웹페이지 자체 zoom(in/out)으로 동작
 - 원인 추정: 버튼이 WebView(JS/CSS zoom 또는 viewport scale) 조작을 하고 있음
