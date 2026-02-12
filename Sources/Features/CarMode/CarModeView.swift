@@ -412,12 +412,14 @@ struct CarModeView: View {
             }
 
             HStack(spacing: 8) {
-                statusPill(text: effectiveLocationSourceLabel, tint: .blue)
+                Text("아이폰 GPS 기반")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.black.opacity(0.56))
+                Spacer(minLength: 8)
                 Text(viewModel.locationText)
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.black.opacity(0.58))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.black.opacity(0.46))
                     .lineLimit(1)
-                Spacer(minLength: 0)
             }
 
             HStack(spacing: 8) {
@@ -810,10 +812,12 @@ struct CarModeView: View {
                             text: viewModel.snapshot.vehicle.onlineState.uppercased(),
                             tint: viewModel.snapshot.vehicle.onlineState.lowercased() == "online" ? Color.green : Color.orange
                         )
-                        Text(viewModel.navigationSummaryText)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.black.opacity(0.56))
-                            .lineLimit(1)
+                        if viewModel.snapshot.navigation != nil {
+                            Text(viewModel.navigationSummaryText)
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Color.black.opacity(0.56))
+                                .lineLimit(1)
+                        }
                     }
 
                     Divider().overlay(Color.black.opacity(0.08))
