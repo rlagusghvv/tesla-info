@@ -20,6 +20,7 @@ struct CarModeView: View {
     @StateObject private var naviModel = KakaoNavigationViewModel()
     @State private var showSetupSheet = false
     @State private var showMediaOverlayInNavi = false
+    @State private var naviHUDVisible: Bool = true
     @State private var showChromeInNavi: Bool = false
     @State private var autoHideTask: Task<Void, Never>?
 
