@@ -20,28 +20,57 @@ actor KakaoAPIClient {
         guard !q.isEmpty else { return [] }
         guard !restAPIKey.isEmpty else { throw KakaoAPIError.misconfigured("Missing Kakao REST API key.") }
 
-        var components = URLComponents(string: "https://dapi.kakao.com/v2/local/search/keyword.json")
-        var items: [URLQueryItem] = [
-            URLQueryItem(name: "query", value: q),
-            URLQueryItem(name: "size", value: "10")
-        ]
-        if let near {
-            items.append(URLQueryItem(name: "x", value: String(near.longitude)))
-            items.append(URLQueryItem(name: "y", value: String(near.latitude)))
-            items.append(URLQueryItem(name: "radius", value: "20000"))
-            items.append(URLQueryItem(name: "sort", value: "distance"))
+        // Heuristic: queries ending with "역" are often subway stations.
+        // Use category filter to improve accuracy (e.g., "강남역" shouldn't match random restaurants).
+        let isStationQuery = q.hasSuffix("역") && q.count <= 6
+
+        func makeURL(category: String?) throws -> URL {
+            var components = URLComponents(string: "https://dapi.kakao.com/v2/local/search/keyword.json")
+            var items: [URLQueryItem] = [
+                URLQueryItem(name: "query", value: q),
+                URLQueryItem(name: "size", value: "15")
+            ]
+
+            if let category {
+                items.append(URLQueryItem(name: "category_group_code", value: category))
+                // Prefer relevance for station name searches.
+                items.append(URLQueryItem(name: "sort", value: "accuracy"))
+            } else if let near {
+                // Default: bias by current vehicle position.
+                items.append(URLQueryItem(name: "x", value: String(near.longitude)))
+                items.append(URLQueryItem(name: "y", value: String(near.latitude)))
+                items.append(URLQueryItem(name: "radius", value: "20000"))
+                items.append(URLQueryItem(name: "sort", value: "distance"))
+            }
+
+            components?.queryItems = items
+            guard let url = components?.url else { throw KakaoAPIError.misconfigured("Invalid keyword search URL.") }
+            return url
         }
-        components?.queryItems = items
 
-        guard let url = components?.url else { throw KakaoAPIError.misconfigured("Invalid keyword search URL.") }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("KakaoAK \(restAPIKey)", forHTTPHeaderField: "Authorization")
+        func fetch(url: URL) async throws -> KakaoKeywordSearchResponse {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("KakaoAK \(restAPIKey)", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await session.data(for: request)
+            try Self.validate(response: response, data: data)
+            return try decoder.decode(KakaoKeywordSearchResponse.self, from: data)
+        }
 
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        // Station-first attempt.
+        let decoded: KakaoKeywordSearchResponse
+        if isStationQuery {
+            let stationURL = try makeURL(category: "SW8")
+            let stationDecoded = try await fetch(url: stationURL)
+            if !stationDecoded.documents.isEmpty {
+                decoded = stationDecoded
+            } else {
+                decoded = try await fetch(url: try makeURL(category: nil))
+            }
+        } else {
+            decoded = try await fetch(url: try makeURL(category: nil))
+        }
 
-        let decoded = try decoder.decode(KakaoKeywordSearchResponse.self, from: data)
         return decoded.documents.compactMap { doc in
             guard let x = Double(doc.x), let y = Double(doc.y) else { return nil }
             let address = doc.roadAddressName.isEmpty ? doc.addressName : doc.roadAddressName

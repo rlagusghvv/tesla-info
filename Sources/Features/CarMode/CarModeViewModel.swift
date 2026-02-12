@@ -188,6 +188,13 @@ final class CarModeViewModel: ObservableObject {
     private func compactErrorMessage(_ message: String) -> String {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "Unknown error." }
+
+        // Avoid showing raw HTML error pages in UI popups (e.g., Cloudflare 5xx/403 pages).
+        let lower = trimmed.lowercased()
+        if lower.contains("<!doctype html") || lower.contains("<html") {
+            return "Server error (received HTML). Check tunnel/backend and try again."
+        }
+
         if trimmed.count > 220 {
             return String(trimmed.prefix(220)) + "..."
         }
