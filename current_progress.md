@@ -1129,20 +1129,30 @@ When resuming work, read this file first and continue from **[다음 단계]**.
     - ASC_KEY_PATH (AuthKey_*.p8 절대경로)
     - APPLE_TEAM_ID
 
-## 2026-02-12 (추가 업데이트 @18:52 쿠팡 코끼리 진행상황)
+## 2026-02-12 (추가 업데이트 @18:52~23:22 쿠팡 코끼리 진행상황)
 - Coupilot 레퍼런스 기반 랜딩 1차(UI): `coupang-elephant/app/page.tsx`
   - 헤더/히어로/CTA 구성 + `/recommend` 진입 링크 추가
 - "돌아가게" MVP 기능(테스트용):
   - 분석 UI: `GET /analyze` + `POST /api/analyze`
   - 추천 UI: `GET /recommend`
-    - 추천 생성: `POST /api/recommend` (MVP 룰 기반/결정적 정렬; 추후 실제 랭킹으로 교체)
-    - 추천 리스트(이제 mock 버튼이 아니라 API 호출) + 체크박스 선택 UI
+    - 추천 생성: `POST /api/recommend` (MVP 룰 기반/결정적 정렬; mock 제거)
+    - 추천 리스트 + 체크박스 선택 UI
     - 상단에 "선택 N개 업로드" 버튼
-  - 배치 업로드 API: `POST /api/upload/batch`
-    - 개선: **jobId 반환 → 진행률/상품별 결과를 polling으로 표시** (업로드가 길어져도 UI가 멈추거나 전체 실패처럼 보이지 않게)
+  - 배치 업로드 API: `/api/upload/batch`
+    - **POST**: jobId 반환(비동기 job)
+    - **GET**: jobId로 진행률/결과 조회
+    - UI에서 polling으로 진행률 + 상품별 success/fail 표시
+    - 추가: **idempotencyKey 지원(중복 클릭/재시도 시 동일 job 재사용)**
+    - 추가: **실패 항목만 재시도 버튼**
 - 배치 업로드 오류(대표 피드백) 대응 문서:
   - `docs/coupang_elephant_recommendation_fix_plan.md` (job/progress/idempotency 방향 포함)
-  - 현재 job/progress는 in-memory(MVP)라 서버 재시작시 초기화됨 → 다음 단계에서 Redis/DB로 승격 필요
+  - 현재 job/progress/idempotency는 in-memory(MVP)라 서버 재시작시 초기화됨 → 다음 단계에서 Redis/DB로 승격 필요
+
+### [다음 단계(속도/효과 우선)]
+1) 실제 업로드(단일 업로드) 로직을 `/api/upload/batch` job runner에 연결 (현재는 시뮬레이션)
+2) job 저장소를 Redis/DB로 변경(서버 재시작/스케일 대응)
+3) 업로드 동시성 제한(예: 2~3) + 백오프 재시도 + rate-limit 대응
+4) 추천 결과(후보) 생성 로직을 실제 데이터 기반으로 교체
 
 ## 2026-02-12 (추가 업데이트 @18:55 Backend 재시작 상태)
 - `backend/server.mjs`는 현재 8787에서 실행 중(EADDRINUSE 확인됨: 이미 떠 있음)
