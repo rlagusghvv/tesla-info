@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 
 @MainActor
@@ -134,6 +135,49 @@ final class CarModeViewModel: ObservableObject {
                 errorMessage = compactErrorMessage(error.localizedDescription)
                 commandMessage = nil
             }
+        }
+    }
+
+    func sendNavigationDestination(name: String, coordinate: CLLocationCoordinate2D) async -> (ok: Bool, message: String) {
+        guard !isCommandRunning else {
+            return (false, "Another command is already running.")
+        }
+
+        isCommandRunning = true
+        commandMessage = nil
+        defer { isCommandRunning = false }
+
+        do {
+            let payload: [String: Any] = [
+                "name": name,
+                "lat": coordinate.latitude,
+                "lon": coordinate.longitude,
+                "waypoints": [
+                    [
+                        "name": name,
+                        "lat": coordinate.latitude,
+                        "lon": coordinate.longitude
+                    ]
+                ]
+            ]
+
+            let response = try await service.sendCommand("navigation_waypoints_request", payload: payload)
+            if let latest = response.snapshot, shouldReplaceSnapshot(with: latest) {
+                snapshot = latest
+            }
+            commandMessage = response.message
+            if !response.ok {
+                errorMessage = compactErrorMessage(response.message)
+            }
+            return (response.ok, response.message)
+        } catch {
+            if shouldIgnore(error) {
+                return (false, "Command cancelled.")
+            }
+            let message = compactErrorMessage(error.localizedDescription)
+            errorMessage = message
+            commandMessage = nil
+            return (false, message)
         }
     }
 

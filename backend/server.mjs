@@ -282,9 +282,64 @@ function applySimCommand(command) {
     case 'wake_up':
       applyPatch({ onlineState: 'online' }, 'sim_command');
       return { ok: true, message: 'Vehicle wake-up simulated.' };
+    case 'navigation_waypoints_request':
+    case 'navigation_request':
+      return { ok: true, message: 'Navigation destination sent (simulated).' };
     default:
       return { ok: false, message: `Unsupported simulated command: ${command}` };
   }
+}
+
+function toFiniteNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function normalizeNavigationDestination(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const source = payload;
+  let lat = toFiniteNumber(source.lat ?? source.latitude);
+  let lon = toFiniteNumber(source.lon ?? source.lng ?? source.longitude);
+  let name = String(source.name || source.label || source.title || '').trim();
+
+  if ((!Number.isFinite(lat) || !Number.isFinite(lon)) && Array.isArray(source.waypoints) && source.waypoints.length) {
+    const first = source.waypoints[0] || {};
+    lat = toFiniteNumber(first.lat ?? first.latitude);
+    lon = toFiniteNumber(first.lon ?? first.lng ?? first.longitude);
+    if (!name) {
+      name = String(first.name || first.label || '').trim();
+    }
+  }
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  return {
+    lat,
+    lon,
+    name: name || 'Destination'
+  };
+}
+
+function summarizeFleetCommand(parsed, status, fallbackFailure = 'Command failed') {
+  const result = parsed?.response?.result;
+  const success = typeof result === 'boolean' ? result : true;
+  return {
+    ok: success,
+    status,
+    message: parsed?.response?.reason || parsed?.error || parsed?.message || (success ? 'OK' : fallbackFailure),
+    body: parsed
+  };
 }
 
 function normalizeIngestPayload(payload) {
@@ -609,7 +664,7 @@ async function fetchTeslaMateVehicleData() {
   }
 }
 
-async function forwardTeslaCommand(command) {
+async function forwardTeslaCommand(command, payload = null) {
   if (!TESLA_USER_ACCESS_TOKEN) {
     return {
       ok: false,
@@ -618,10 +673,72 @@ async function forwardTeslaCommand(command) {
     };
   }
 
-  let parsed;
-  let status;
   try {
     const vin = await resolveVehicleVin();
+
+    if (command === 'navigation_request' || command === 'navigation_waypoints_request') {
+      const destination = normalizeNavigationDestination(payload);
+      if (!destination) {
+        return {
+          ok: false,
+          status: 400,
+          message: 'Navigation payload must include destination lat/lon.'
+        };
+      }
+
+      const commandAttempts = [
+        {
+          command: 'navigation_waypoints_request',
+          body: {
+            waypoints: [
+              {
+                lat: destination.lat,
+                lon: destination.lon,
+                name: destination.name
+              }
+            ]
+          }
+        },
+        {
+          command: 'navigation_request',
+          body: {
+            lat: destination.lat,
+            lon: destination.lon,
+            name: destination.name
+          }
+        }
+      ];
+
+      let last = null;
+      for (const attempt of commandAttempts) {
+        const path = `/api/1/vehicles/${vin}/command/${encodeURIComponent(attempt.command)}`;
+        try {
+          const { parsed, status } = await fetchTeslaJson(path, 'POST', attempt.body);
+          const summarized = summarizeFleetCommand(parsed, status, `${attempt.command} failed`);
+          if (summarized.ok) {
+            return {
+              ...summarized,
+              message: `${summarized.message} (destination: ${destination.name})`
+            };
+          }
+          last = summarized;
+        } catch (error) {
+          last = {
+            ok: false,
+            status: 502,
+            message: error instanceof Error ? error.message : 'Navigation command failed',
+            body: null
+          };
+        }
+      }
+
+      return last || {
+        ok: false,
+        status: 502,
+        message: 'Navigation command failed.',
+        body: null
+      };
+    }
 
     // Fleet API note: wake_up is NOT a /command endpoint.
     const path =
@@ -629,9 +746,14 @@ async function forwardTeslaCommand(command) {
         ? `/api/1/vehicles/${vin}/wake_up`
         : `/api/1/vehicles/${vin}/command/${encodeURIComponent(command)}`;
 
-    const result = await fetchTeslaJson(path, 'POST', {});
-    parsed = result.parsed;
-    status = result.status;
+    const commandBody =
+      command === 'wake_up'
+        ? {}
+        : payload && typeof payload === 'object'
+          ? payload
+          : {};
+    const { parsed, status } = await fetchTeslaJson(path, 'POST', commandBody);
+    return summarizeFleetCommand(parsed, status);
   } catch (error) {
     return {
       ok: false,
@@ -640,16 +762,6 @@ async function forwardTeslaCommand(command) {
       body: null
     };
   }
-
-  const result = parsed?.response?.result;
-  const success = typeof result === 'boolean' ? result : true;
-
-  return {
-    ok: success,
-    status,
-    message: parsed?.response?.reason || parsed?.error || parsed?.message || (success ? 'OK' : 'Command failed'),
-    body: parsed
-  };
 }
 
 async function forwardTeslaMateCommand(command) {
@@ -961,6 +1073,10 @@ async function route(req, res) {
     try {
       const body = await readJson(req);
       const command = String(body.command || '').trim();
+      const payload =
+        body?.payload && typeof body.payload === 'object'
+          ? body.payload
+          : null;
       if (!command) {
         sendJson(res, 400, { ok: false, message: 'Missing command.' });
         return;
@@ -974,7 +1090,9 @@ async function route(req, res) {
         'door_unlock',
         'auto_conditioning_start',
         'auto_conditioning_stop',
-        'wake_up'
+        'wake_up',
+        'navigation_request',
+        'navigation_waypoints_request'
       ]);
 
       const useFleetForCommand = state.mode === 'teslamate' && CONTROL_COMMANDS_VIA_FLEET.has(command);
@@ -983,9 +1101,9 @@ async function route(req, res) {
       if (state.mode === 'simulator') {
         result = applySimCommand(command);
       } else if (state.mode === 'teslamate') {
-        result = useFleetForCommand ? await forwardTeslaCommand(command) : await forwardTeslaMateCommand(command);
+        result = useFleetForCommand ? await forwardTeslaCommand(command, payload) : await forwardTeslaMateCommand(command);
       } else {
-        result = await forwardTeslaCommand(command);
+        result = await forwardTeslaCommand(command, payload);
       }
 
       // Attach routing info for easier debugging.

@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreLocation
 import SwiftUI
 
@@ -8,7 +9,9 @@ struct KakaoNavigationPaneView: View {
 
     let vehicleLocation: VehicleLocation
     let vehicleSpeedKph: Double
+    let locationSourceLabel: String?
     let wakeVehicle: (() -> Void)?
+    let sendDestinationToVehicle: ((KakaoPlace) async -> (ok: Bool, message: String))?
 
     /// Controls whether overlays (HUD/search/results/route info) are visible.
     @Binding var hudVisible: Bool
@@ -23,6 +26,8 @@ struct KakaoNavigationPaneView: View {
     @State private var suppressMapTapUntil: Date = .distantPast
 
     @State private var autoHideTask: Task<Void, Never>?
+    @State private var destinationPushStatus: (ok: Bool, message: String)?
+    @StateObject private var speedCameraAlertEngine = SpeedCameraAlertEngine()
 
     private let autoHideSeconds: Double = 14
     private let topPanelXKey = "kakao.navi.topPanel.offset.x"
@@ -179,18 +184,38 @@ struct KakaoNavigationPaneView: View {
             }
             startFollowPulseLoop()
             revealHUDAndScheduleAutoHide()
+            speedCameraAlertEngine.reset()
+            Task {
+                await model.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: true)
+            }
+            updateSpeedCameraAlerts()
         }
         .onDisappear {
             autoHideTask?.cancel()
             autoHideTask = nil
             followPulseTask?.cancel()
             followPulseTask = nil
+            speedCameraAlertEngine.reset()
         }
         .onChange(of: vehicleLocation) { _, _ in
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
+            Task {
+                await model.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey)
+            }
+            updateSpeedCameraAlerts()
         }
         .onChange(of: vehicleSpeedKph) { _, _ in
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
+            updateSpeedCameraAlerts()
+        }
+        .onChange(of: model.routeRevision) { _, _ in
+            Task {
+                await model.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: true)
+            }
+            updateSpeedCameraAlerts()
+        }
+        .onChange(of: model.speedCameraRevision) { _, _ in
+            updateSpeedCameraAlerts()
         }
         .onChange(of: hudVisible) { _, visible in
             if !visible {
@@ -504,6 +529,13 @@ struct KakaoNavigationPaneView: View {
         }
         .buttonStyle(.plain)
         .disabled(destination == nil || model.isRouting)
+        .contextMenu {
+            if destination != nil {
+                Button("Tesla 순정 네비로 전송") {
+                    Task { await sendFavoriteToTesla(slot) }
+                }
+            }
+        }
     }
 
     private var routeInfo: some View {
@@ -512,6 +544,24 @@ struct KakaoNavigationPaneView: View {
                 Text(message)
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(.red.opacity(0.95))
+            }
+
+            if let status = destinationPushStatus {
+                Text(status.message)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(status.ok ? .green.opacity(0.95) : .orange.opacity(0.95))
+            }
+
+            if let cameraText = speedCameraAlertEngine.latestAlertText {
+                Text(cameraText)
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.yellow.opacity(0.95))
+            }
+
+            if let source = locationSourceLabel, !source.isEmpty {
+                Text("위치 소스: \(source)")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.72))
             }
 
             if model.route == nil {
@@ -550,32 +600,49 @@ struct KakaoNavigationPaneView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 8) {
                     ForEach(model.results) { place in
-                        Button {
-                            Task { await startRoute(to: place) }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(place.name)
-                                    .font(.system(size: 16, weight: .heavy, design: .rounded))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(place.address)
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.75))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(place.name)
+                                .font(.system(size: 16, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(place.address)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.75))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            HStack(spacing: 8) {
+                                Button {
+                                    Task { await startRoute(to: place) }
+                                } label: {
+                                    Label("경로 보기", systemImage: "map.fill")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 13, height: 34, cornerRadius: 10))
+
+                                Button {
+                                    Task { await pushDestinationToTesla(place) }
+                                } label: {
+                                    Label("Tesla로 전송", systemImage: "paperplane.fill")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 13, height: 34, cornerRadius: 10))
+                                .disabled(sendDestinationToVehicle == nil)
                             }
-                            .padding(10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color.white.opacity(0.11))
-                            )
                         }
-                        .buttonStyle(.plain)
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.white.opacity(0.11))
+                        )
                         .contextMenu {
                             Button("집으로 저장") {
                                 model.saveFavorite(.home, place: place)
                             }
                             Button("직장으로 저장") {
                                 model.saveFavorite(.work, place: place)
+                            }
+                            Button("Tesla 순정 네비로 전송") {
+                                Task { await pushDestinationToTesla(place) }
                             }
                             if model.favorite(for: .home) != nil {
                                 Button("집 저장 해제", role: .destructive) {
@@ -659,6 +726,49 @@ struct KakaoNavigationPaneView: View {
         await model.startRoute(restAPIKey: key, origin: origin, destination: destination.coordinate)
     }
 
+    private func sendFavoriteToTesla(_ slot: KakaoNavigationViewModel.FavoriteSlot) async {
+        guard let destination = model.favorite(for: slot) else {
+            destinationPushStatus = (false, "\(slot.title) 목적지가 아직 저장되지 않았습니다.")
+            return
+        }
+
+        let place = KakaoPlace(
+            id: "\(slot.rawValue)-favorite",
+            name: destination.name,
+            coordinate: destination.coordinate,
+            address: destination.address,
+            categoryGroupCode: nil,
+            categoryName: nil
+        )
+        await pushDestinationToTesla(place)
+    }
+
+    private func pushDestinationToTesla(_ place: KakaoPlace) async {
+        revealHUDAndScheduleAutoHide(extend: true)
+        guard networkMonitor.isConnected else {
+            destinationPushStatus = (false, "Offline. Connect hotspot and retry.")
+            return
+        }
+        guard let sendDestinationToVehicle else {
+            destinationPushStatus = (false, "Destination push is unavailable in current mode.")
+            return
+        }
+
+        let result = await sendDestinationToVehicle(place)
+        destinationPushStatus = result
+        if !result.ok {
+            model.errorMessage = result.message
+        }
+    }
+
+    private func updateSpeedCameraAlerts() {
+        speedCameraAlertEngine.update(
+            nextGuide: model.nextSpeedCameraGuide,
+            distanceMeters: model.distanceToNextSpeedCameraMeters(),
+            speedKph: vehicleSpeedKph
+        )
+    }
+
     private func distanceDurationText(route: KakaoRoute) -> String {
         let km = route.distanceMeters.map { Double($0) / 1000.0 }
         let min = route.durationSeconds.map { Double($0) / 60.0 }
@@ -717,6 +827,26 @@ struct KakaoNavigationPaneView: View {
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(0.96))
                 }
+            }
+
+            if let cameraMeters = model.distanceToNextSpeedCameraMeters() {
+                HStack(spacing: 7) {
+                    Image(systemName: "camera.viewfinder")
+                        .font(.system(size: 13, weight: .black))
+                    Text("과속 카메라 \(cameraMeters)m")
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                    if let guide = model.nextSpeedCameraGuide {
+                        Text(guide.id.hasPrefix("poi:") ? "POI" : "Route")
+                            .font(.system(size: 11, weight: .heavy, design: .rounded))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(Color.white.opacity(0.16))
+                            )
+                    }
+                }
+                .foregroundStyle(.yellow.opacity(0.95))
             }
         }
         .padding(.horizontal, 16)
@@ -878,5 +1008,66 @@ private extension KakaoNavigationPaneView {
         if extend {
             // No-op: extend is handled by cancelling and rescheduling.
         }
+    }
+}
+
+@MainActor
+private final class SpeedCameraAlertEngine: ObservableObject {
+    @Published private(set) var latestAlertText: String?
+
+    private let thresholdsMeters = [1000, 500, 300, 150]
+    private let synthesizer = AVSpeechSynthesizer()
+    private var currentGuideID: String?
+    private var firedThresholds: Set<Int> = []
+    private var lastSpokenAt: Date = .distantPast
+
+    func reset() {
+        currentGuideID = nil
+        firedThresholds.removeAll()
+        latestAlertText = nil
+    }
+
+    func update(nextGuide: KakaoGuide?, distanceMeters: Int?, speedKph: Double) {
+        guard let nextGuide, let distanceMeters, distanceMeters >= 0 else {
+            reset()
+            return
+        }
+
+        if currentGuideID != nextGuide.id {
+            currentGuideID = nextGuide.id
+            firedThresholds.removeAll()
+            latestAlertText = nil
+        }
+
+        if distanceMeters > 1_800 {
+            latestAlertText = nil
+            return
+        }
+
+        latestAlertText = "과속 카메라 \(distanceMeters)m"
+
+        let notFired = thresholdsMeters.filter { distanceMeters <= $0 && !firedThresholds.contains($0) }
+        guard let stage = notFired.min() else { return }
+
+        // If we jumped directly near the camera, suppress upper-level warnings.
+        for threshold in thresholdsMeters where threshold >= stage {
+            firedThresholds.insert(threshold)
+        }
+
+        let now = Date()
+        guard now.timeIntervalSince(lastSpokenAt) >= 5 else { return }
+        lastSpokenAt = now
+
+        let roundedSpeed = Int(max(0, speedKph.rounded()))
+        var text = "과속 단속 카메라 \(stage)미터 앞입니다"
+        if stage <= 300, roundedSpeed >= 50 {
+            text += ". 감속하세요"
+        }
+
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: "ko-KR")
+        utterance.rate = 0.46
+        utterance.volume = 0.95
+        synthesizer.speak(utterance)
     }
 }

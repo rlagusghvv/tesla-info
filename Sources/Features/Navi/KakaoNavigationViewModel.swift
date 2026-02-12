@@ -39,6 +39,7 @@ final class KakaoNavigationViewModel: ObservableObject {
     @Published private(set) var vehicleCoordinate: CLLocationCoordinate2D?
     @Published private(set) var vehicleSpeedKph: Double = 0
     @Published private(set) var routeRevision: Int = 0
+    @Published private(set) var speedCameraRevision: Int = 0
     @Published private(set) var followPulse: Int = 0
     @Published private(set) var zoomOffset: Int = 0
     @Published private(set) var zoomRevision: Int = 0
@@ -50,6 +51,10 @@ final class KakaoNavigationViewModel: ObservableObject {
 
     private var cachedKey: String = ""
     private var cachedClient: KakaoAPIClient?
+    private var speedCameraPOIGuides: [KakaoGuide] = []
+    private var isRefreshingSpeedCameras = false
+    private var lastSpeedCameraRefreshAt: Date = .distantPast
+    private var lastSpeedCameraRefreshCoordinate: CLLocationCoordinate2D?
 
     init() {
         loadFavorites()
@@ -67,6 +72,8 @@ final class KakaoNavigationViewModel: ObservableObject {
 
     func clearRoute() {
         route = nil
+        speedCameraPOIGuides = []
+        speedCameraRevision += 1
         routeRevision += 1
         errorMessage = nil
     }
@@ -144,14 +151,61 @@ final class KakaoNavigationViewModel: ObservableObject {
         defer { isRouting = false }
 
         do {
+            if vehicleCoordinate == nil {
+                vehicleCoordinate = origin
+            }
             let r = try await client(restAPIKey: restAPIKey).fetchRoute(origin: origin, destination: destination)
             route = r
             routeRevision += 1
             isFollowModeEnabled = true
             followPulse += 1
+            await refreshSpeedCameraPOIsIfNeeded(restAPIKey: restAPIKey, force: true)
         } catch {
             route = nil
+            speedCameraPOIGuides = []
+            speedCameraRevision += 1
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func refreshSpeedCameraPOIsIfNeeded(restAPIKey: String, force: Bool = false) async {
+        let key = restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        guard route != nil else {
+            if !speedCameraPOIGuides.isEmpty {
+                speedCameraPOIGuides = []
+                speedCameraRevision += 1
+            }
+            return
+        }
+        guard let near = vehicleCoordinate else { return }
+        guard !isRefreshingSpeedCameras else { return }
+
+        let movedEnough: Bool = {
+            guard let last = lastSpeedCameraRefreshCoordinate else { return true }
+            return distanceMeters(last, near) >= 1_500
+        }()
+        let stale = Date().timeIntervalSince(lastSpeedCameraRefreshAt) >= 180
+
+        if !force && !movedEnough && !stale && !speedCameraPOIGuides.isEmpty {
+            return
+        }
+
+        isRefreshingSpeedCameras = true
+        defer { isRefreshingSpeedCameras = false }
+
+        do {
+            let places = try await client(restAPIKey: key).searchSpeedCameraPOIs(near: near)
+            let filtered = filterSpeedCameraPOIs(places, route: route)
+            speedCameraPOIGuides = filtered
+            lastSpeedCameraRefreshCoordinate = near
+            lastSpeedCameraRefreshAt = Date()
+            speedCameraRevision += 1
+        } catch {
+            // Non-fatal: keep route guidance running even if camera POI fetch fails.
+            if force && speedCameraPOIGuides.isEmpty {
+                errorMessage = "Speed camera POI refresh failed: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -182,8 +236,41 @@ final class KakaoNavigationViewModel: ObservableObject {
         return bestAhead ?? bestAny ?? route.guides.first
     }
 
+    var nextSpeedCameraGuide: KakaoGuide? {
+        guard route != nil else { return nil }
+        let cameraGuides = mergedSpeedCameraGuides()
+        guard !cameraGuides.isEmpty else { return nil }
+        guard let vehicleCoordinate else { return cameraGuides.first }
+
+        var bestAny: KakaoGuide?
+        var bestAnyDistance = Double.greatestFiniteMagnitude
+
+        var bestAhead: KakaoGuide?
+        var bestAheadDistance = Double.greatestFiniteMagnitude
+
+        for g in cameraGuides {
+            let d = distanceMeters(vehicleCoordinate, g.coordinate)
+            if d < bestAnyDistance {
+                bestAnyDistance = d
+                bestAny = g
+            }
+
+            if d > 20, d < bestAheadDistance {
+                bestAheadDistance = d
+                bestAhead = g
+            }
+        }
+
+        return bestAhead ?? bestAny ?? cameraGuides.first
+    }
+
     func distanceToNextGuideMeters() -> Int? {
         guard let vehicleCoordinate, let guide = nextGuide else { return nil }
+        return Int(distanceMeters(vehicleCoordinate, guide.coordinate).rounded())
+    }
+
+    func distanceToNextSpeedCameraMeters() -> Int? {
+        guard let vehicleCoordinate, let guide = nextSpeedCameraGuide else { return nil }
         return Int(distanceMeters(vehicleCoordinate, guide.coordinate).rounded())
     }
 
@@ -309,5 +396,106 @@ final class KakaoNavigationViewModel: ObservableObject {
         case .work:
             return Self.favoriteWorkKey
         }
+    }
+
+    private func mergedSpeedCameraGuides() -> [KakaoGuide] {
+        let routeGuides = route?.guides.filter(isSpeedCameraGuide(_:)) ?? []
+        let incoming = routeGuides + speedCameraPOIGuides
+        guard !incoming.isEmpty else { return [] }
+
+        var merged: [KakaoGuide] = []
+        for guide in incoming {
+            if let index = merged.firstIndex(where: { distanceMeters($0.coordinate, guide.coordinate) <= 35 }) {
+                // Prefer Kakao route-native guide over POI-only fallback when they overlap.
+                let existing = merged[index]
+                let existingIsPOI = existing.id.hasPrefix("poi:")
+                let incomingIsPOI = guide.id.hasPrefix("poi:")
+                if existingIsPOI && !incomingIsPOI {
+                    merged[index] = guide
+                }
+                continue
+            }
+            merged.append(guide)
+        }
+        return merged
+    }
+
+    private func filterSpeedCameraPOIs(_ places: [KakaoPlace], route: KakaoRoute?) -> [KakaoGuide] {
+        guard !places.isEmpty else { return [] }
+        let polyline = route?.polyline ?? []
+
+        return places.compactMap { place in
+            if !looksLikeSpeedCamera(place.name) {
+                return nil
+            }
+
+            if !polyline.isEmpty {
+                guard let minDistance = minDistanceToPolyline(point: place.coordinate, polyline: polyline) else {
+                    return nil
+                }
+                // Route polyline is downsampled for performance, so use a generous corridor.
+                guard minDistance <= 220 else { return nil }
+            }
+
+            return KakaoGuide(
+                id: "poi:\(place.id)",
+                name: "과속 카메라",
+                guidance: place.name,
+                coordinate: place.coordinate,
+                distanceMeters: nil,
+                durationSeconds: nil,
+                type: 9901
+            )
+        }
+    }
+
+    private func minDistanceToPolyline(point: CLLocationCoordinate2D, polyline: [CLLocationCoordinate2D]) -> Double? {
+        guard !polyline.isEmpty else { return nil }
+        var minValue = Double.greatestFiniteMagnitude
+        for p in polyline {
+            minValue = min(minValue, distanceMeters(point, p))
+        }
+        return minValue.isFinite ? minValue : nil
+    }
+
+    private func looksLikeSpeedCamera(_ text: String) -> Bool {
+        let normalized = text.lowercased()
+        let keywords = [
+            "과속",
+            "단속",
+            "무인",
+            "카메라",
+            "camera",
+            "cctv",
+            "구간단속",
+            "신호과속"
+        ]
+        return keywords.contains { normalized.contains($0) }
+    }
+
+    private func isSpeedCameraGuide(_ guide: KakaoGuide) -> Bool {
+        let text = "\(guide.name) \(guide.guidance)".lowercased()
+        let keywords = [
+            "과속",
+            "단속",
+            "무인",
+            "카메라",
+            "camera",
+            "cctv",
+            "구간단속",
+            "신호과속"
+        ]
+        if keywords.contains(where: { text.contains($0) }) {
+            return true
+        }
+
+        // Kakao directions may omit textual hints for some camera-related maneuvers.
+        if let type = guide.type {
+            let knownCameraishTypes: Set<Int> = [53, 54, 55, 71, 72]
+            if knownCameraishTypes.contains(type) {
+                return true
+            }
+        }
+        return false
     }
 }

@@ -22,10 +22,10 @@ actor TelemetryService {
         }
     }
 
-    func sendCommand(_ command: String) async throws -> CommandResponse {
+    func sendCommand(_ command: String, payload: [String: Any]? = nil) async throws -> CommandResponse {
         // In-car operation policy: always send commands through backend to keep
         // Fleet/TeslaMate command handling and retries centralized.
-        return try await sendCommandToBackend(command)
+        return try await sendCommandToBackend(command, payload: payload)
     }
 
     private func fetchLatestFromBackend() async throws -> VehicleSnapshot {
@@ -46,10 +46,14 @@ actor TelemetryService {
         }
     }
 
-    private func sendCommandToBackend(_ command: String) async throws -> CommandResponse {
+    private func sendCommandToBackend(_ command: String, payload: [String: Any]? = nil) async throws -> CommandResponse {
         let healthWarning = await fetchBackendHealthWarning()
         let url = AppConfig.backendBaseURL.appendingPathComponent("api/vehicle/command")
-        let body = try JSONSerialization.data(withJSONObject: ["command": command], options: [])
+        var bodyObject: [String: Any] = ["command": command]
+        if let payload {
+            bodyObject["payload"] = payload
+        }
+        let body = try JSONSerialization.data(withJSONObject: bodyObject, options: [])
         let (data, http) = try await request(url: url, method: "POST", body: body)
 
         guard (200...299).contains(http.statusCode) else {

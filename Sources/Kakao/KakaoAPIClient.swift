@@ -85,6 +85,75 @@ actor KakaoAPIClient {
         }
     }
 
+    /// Fallback speed-camera candidates using Kakao local keyword POI.
+    /// This supplements route-guide keyword matching to reduce misses in real driving.
+    func searchSpeedCameraPOIs(
+        near: CLLocationCoordinate2D,
+        radiusMeters: Int = 15_000,
+        pageLimit: Int = 3
+    ) async throws -> [KakaoPlace] {
+        guard !restAPIKey.isEmpty else { throw KakaoAPIError.misconfigured("Missing Kakao REST API key.") }
+
+        let safeRadius = min(max(radiusMeters, 1_000), 20_000)
+        let safePageLimit = min(max(pageLimit, 1), 5)
+        var seen = Set<String>()
+        var merged: [KakaoPlace] = []
+
+        func makeURL(page: Int) throws -> URL {
+            var components = URLComponents(string: "https://dapi.kakao.com/v2/local/search/keyword.json")
+            components?.queryItems = [
+                URLQueryItem(name: "query", value: "과속 단속 카메라"),
+                URLQueryItem(name: "x", value: String(near.longitude)),
+                URLQueryItem(name: "y", value: String(near.latitude)),
+                URLQueryItem(name: "radius", value: String(safeRadius)),
+                URLQueryItem(name: "sort", value: "distance"),
+                URLQueryItem(name: "size", value: "15"),
+                URLQueryItem(name: "page", value: String(page))
+            ]
+            guard let url = components?.url else { throw KakaoAPIError.misconfigured("Invalid speed-camera search URL.") }
+            return url
+        }
+
+        func fetch(url: URL) async throws -> KakaoKeywordSearchResponse {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("KakaoAK \(restAPIKey)", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await session.data(for: request)
+            try Self.validate(response: response, data: data)
+            return try decoder.decode(KakaoKeywordSearchResponse.self, from: data)
+        }
+
+        for page in 1...safePageLimit {
+            let decoded = try await fetch(url: makeURL(page: page))
+            if decoded.documents.isEmpty { break }
+
+            for doc in decoded.documents {
+                guard let x = Double(doc.x), let y = Double(doc.y) else { continue }
+                let id = doc.id.isEmpty ? "\(x),\(y),\(doc.placeName)" : doc.id
+                guard !seen.contains(id) else { continue }
+                seen.insert(id)
+
+                let address = doc.roadAddressName.isEmpty ? doc.addressName : doc.roadAddressName
+                merged.append(
+                    KakaoPlace(
+                        id: id,
+                        name: doc.placeName,
+                        coordinate: CLLocationCoordinate2D(latitude: y, longitude: x),
+                        address: address,
+                        categoryGroupCode: doc.categoryGroupCode,
+                        categoryName: doc.categoryName
+                    )
+                )
+            }
+
+            if decoded.meta?.isEnd == true {
+                break
+            }
+        }
+
+        return merged
+    }
+
     func fetchRoute(origin: CLLocationCoordinate2D, destination: CLLocationCoordinate2D) async throws -> KakaoRoute {
         guard !restAPIKey.isEmpty else { throw KakaoAPIError.misconfigured("Missing Kakao REST API key.") }
 
@@ -203,7 +272,16 @@ enum KakaoAPIError: LocalizedError {
 }
 
 private struct KakaoKeywordSearchResponse: Decodable {
+    let meta: KakaoKeywordSearchMeta?
     let documents: [KakaoKeywordSearchDocument]
+}
+
+private struct KakaoKeywordSearchMeta: Decodable {
+    let isEnd: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case isEnd = "is_end"
+    }
 }
 
 private struct KakaoKeywordSearchDocument: Decodable {

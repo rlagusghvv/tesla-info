@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import WebKit
 
@@ -11,6 +12,99 @@ private final class WebViewStore: ObservableObject {
     }
 }
 
+@MainActor
+private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
+    @Published private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
+    @Published private(set) var latestLocation: CLLocation?
+    @Published private(set) var latestSpeedKph: Double?
+    @Published private(set) var lastUpdatedAt: Date = .distantPast
+
+    private let manager = CLLocationManager()
+    private var hasStartedUpdates = false
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        manager.distanceFilter = 2
+        manager.activityType = .automotiveNavigation
+        manager.pausesLocationUpdatesAutomatically = true
+        authorizationStatus = manager.authorizationStatus
+    }
+
+    func start() {
+        guard CLLocationManager.locationServicesEnabled() else { return }
+        authorizationStatus = manager.authorizationStatus
+        if authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+            return
+        }
+        if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+            manager.startUpdatingLocation()
+            hasStartedUpdates = true
+        }
+    }
+
+    func stop() {
+        guard hasStartedUpdates else { return }
+        manager.stopUpdatingLocation()
+        hasStartedUpdates = false
+    }
+
+    var currentVehicleLocation: VehicleLocation? {
+        guard let location = latestLocation else { return nil }
+        let age = Date().timeIntervalSince(lastUpdatedAt)
+        guard age <= 5 else { return nil }
+        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 80 else { return nil }
+
+        let coordinate = location.coordinate
+        guard (-90.0...90.0).contains(coordinate.latitude) else { return nil }
+        guard (-180.0...180.0).contains(coordinate.longitude) else { return nil }
+        guard abs(coordinate.latitude) > 0.000_01 || abs(coordinate.longitude) > 0.000_01 else { return nil }
+        return VehicleLocation(lat: coordinate.latitude, lon: coordinate.longitude)
+    }
+
+    var currentSpeedKph: Double? {
+        guard let speed = latestSpeedKph else { return nil }
+        let age = Date().timeIntervalSince(lastUpdatedAt)
+        guard age <= 5 else { return nil }
+        return max(0, speed)
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            authorizationStatus = manager.authorizationStatus
+            if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+                manager.startUpdatingLocation()
+                hasStartedUpdates = true
+            } else if authorizationStatus == .denied || authorizationStatus == .restricted {
+                manager.stopUpdatingLocation()
+                hasStartedUpdates = false
+            }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let latest = locations.last else { return }
+        Task { @MainActor in
+            latestLocation = latest
+            if latest.speed >= 0 {
+                latestSpeedKph = latest.speed * 3.6
+            }
+            lastUpdatedAt = Date()
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        // Keep telemetry fallback active when GPS fails temporarily.
+        Task { @MainActor in
+            if (error as NSError).code == CLError.denied.rawValue {
+                hasStartedUpdates = false
+            }
+        }
+    }
+}
+
 struct CarModeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var router: AppRouter
@@ -18,11 +112,11 @@ struct CarModeView: View {
     @EnvironmentObject private var teslaAuth: TeslaAuthStore
     @StateObject private var viewModel = CarModeViewModel()
     @StateObject private var naviModel = KakaoNavigationViewModel()
+    @StateObject private var deviceLocationTracker = DeviceLocationTracker()
     @State private var showSetupSheet = false
     @State private var showMediaOverlayInNavi = false
     @State private var naviHUDVisible: Bool = true
     @State private var showChromeInNavi: Bool = false
-    @State private var autoHideTask: Task<Void, Never>?
 
     @StateObject private var mediaWebViewStore = WebViewStore()
     @State private var mediaOverlaySize: CGSize = .zero
@@ -34,10 +128,34 @@ struct CarModeView: View {
     private let mediaToolbarHeight: CGFloat = 64
     private let mediaMinSize = CGSize(width: 330, height: 220)
     private let regularTopInset: CGFloat = 22
+    private let phoneLayoutMaxWidth: CGFloat = 470
+
+    private var usePhoneSizedLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
+
+    private var isFullscreenNaviActive: Bool {
+        viewModel.centerMode == .navi && !showChromeInNavi && !usePhoneSizedLayout
+    }
+
+    private var effectiveNaviLocation: VehicleLocation {
+        deviceLocationTracker.currentVehicleLocation ?? viewModel.snapshot.vehicle.location
+    }
+
+    private var effectiveNaviSpeedKph: Double {
+        deviceLocationTracker.currentSpeedKph ?? viewModel.snapshot.vehicle.speedKph
+    }
+
+    private var effectiveLocationSourceLabel: String {
+        if deviceLocationTracker.currentVehicleLocation != nil {
+            return "아이폰 GPS"
+        }
+        return "차량 텔레메트리"
+    }
 
     var body: some View {
         GeometryReader { root in
-            let isFullscreenNavi = viewModel.centerMode == .navi && !showChromeInNavi
+            let isFullscreenNavi = isFullscreenNaviActive
 
             ZStack {
                 LinearGradient(
@@ -85,18 +203,20 @@ struct CarModeView: View {
         }
         .onAppear {
             viewModel.start()
+            deviceLocationTracker.start()
         }
         .onDisappear {
             viewModel.stop()
-            autoHideTask?.cancel()
-            autoHideTask = nil
+            deviceLocationTracker.stop()
         }
         .onChange(of: scenePhase) { _, next in
             switch next {
             case .active:
                 viewModel.start()
+                deviceLocationTracker.start()
             case .inactive, .background:
                 viewModel.stop()
+                deviceLocationTracker.stop()
             @unknown default:
                 break
             }
@@ -118,18 +238,16 @@ struct CarModeView: View {
 
     private var content: some View {
         GeometryReader { proxy in
-            // Keep the center pane dominant (map/media), especially on iPad mini.
-            // All vehicle info + controls live in a single side bar.
-            let sideWidth = max(198, min(230, proxy.size.width * 0.24))
+            if usePhoneSizedLayout {
+                let sideHeight = min(350, max(220, proxy.size.height * 0.34))
 
-            HStack(spacing: (viewModel.centerMode == .navi && !showChromeInNavi) ? 0 : 14) {
-                if showSetupSheet {
-                    suspendedCenterPanel
-                } else {
-                    centerPanel
-                }
+                VStack(spacing: 10) {
+                    if showSetupSheet {
+                        suspendedCenterPanel
+                    } else {
+                        regularCenterPanel
+                    }
 
-                if !(viewModel.centerMode == .navi && !showChromeInNavi) {
                     Group {
                         if showSetupSheet {
                             suspendedSidePanel
@@ -137,9 +255,34 @@ struct CarModeView: View {
                             sidePanel
                         }
                     }
-                    .frame(width: sideWidth)
+                    .frame(height: sideHeight)
+                }
+                .frame(maxWidth: min(phoneLayoutMaxWidth, proxy.size.width))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                // Keep the center pane dominant (map/media), especially on iPad mini.
+                // All vehicle info + controls live in a single side bar.
+                let sideWidth = max(198, min(230, proxy.size.width * 0.24))
 
-                    Spacer(minLength: 0)
+                HStack(spacing: isFullscreenNaviActive ? 0 : 14) {
+                    if showSetupSheet {
+                        suspendedCenterPanel
+                    } else {
+                        centerPanel
+                    }
+
+                    if !isFullscreenNaviActive {
+                        Group {
+                            if showSetupSheet {
+                                suspendedSidePanel
+                            } else {
+                                sidePanel
+                            }
+                        }
+                        .frame(width: sideWidth)
+
+                        Spacer(minLength: 0)
+                    }
                 }
             }
         }
@@ -221,7 +364,7 @@ struct CarModeView: View {
 
     @ViewBuilder
     private var centerPanel: some View {
-        if viewModel.centerMode == .navi, !showChromeInNavi {
+        if isFullscreenNaviActive {
             fullscreenNaviPanel
         } else {
             regularCenterPanel
@@ -231,10 +374,6 @@ struct CarModeView: View {
     private var fullscreenNaviPanel: some View {
         ZStack(alignment: .bottomTrailing) {
             naviPane
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    toggleChromeInNavi()
-                }
 
             if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
                 DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
@@ -261,8 +400,9 @@ struct CarModeView: View {
     private var naviPane: some View {
         KakaoNavigationPaneView(
             model: naviModel,
-            vehicleLocation: viewModel.snapshot.vehicle.location,
-            vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
+            vehicleLocation: effectiveNaviLocation,
+            vehicleSpeedKph: effectiveNaviSpeedKph,
+            locationSourceLabel: effectiveLocationSourceLabel,
             wakeVehicle: {
                 viewModel.sendCommand("wake_up")
                 Task {
@@ -275,6 +415,9 @@ struct CarModeView: View {
                         }
                     }
                 }
+            },
+            sendDestinationToVehicle: { place in
+                await viewModel.sendNavigationDestination(name: place.name, coordinate: place.coordinate)
             },
             hudVisible: $naviHUDVisible
         )
@@ -297,8 +440,10 @@ struct CarModeView: View {
                         showMediaOverlayInNavi.toggle()
                     }
 
-                    headerIconButton(systemImage: showChromeInNavi ? "hand.tap.fill" : "hand.tap") {
-                        toggleChromeInNavi()
+                    if !usePhoneSizedLayout {
+                        headerIconButton(systemImage: showChromeInNavi ? "hand.tap.fill" : "hand.tap") {
+                            toggleChromeInNavi()
+                        }
                     }
                 }
 
@@ -368,21 +513,7 @@ struct CarModeView: View {
     }
 
     private func toggleChromeInNavi() {
-        let shouldShow = !showChromeInNavi
-        showChromeInNavi = shouldShow
-
-        autoHideTask?.cancel()
-        autoHideTask = nil
-
-        guard shouldShow else { return }
-
-        // Auto-hide after a few seconds to keep the map unobstructed.
-        autoHideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 6_000_000_000)
-            if viewModel.centerMode == .navi {
-                showChromeInNavi = false
-            }
-        }
+        showChromeInNavi.toggle()
     }
 
     private func headerIconButton(systemImage: String, action: @escaping () -> Void) -> some View {
