@@ -1,14 +1,46 @@
 # Handoff (2026-02-10)
 
+## Anti-Reset / Bootstrap (MANDATORY)
+이 프로젝트는 컨텍스트가 날아가거나 모델/세션이 바뀌어도 운영 규칙이 유지되어야 합니다.
+
+모든 봇/에이전트는 작업 시작 시 아래 2개를 **반드시 먼저 읽고** 그대로 따릅니다.
+1) `docs/HANDOFF.md` (이 문서: 역할/규칙/금지사항)
+2) `current_progress.md` (최신 진행상황/실행 로그/다음 단계)
+
+그리고 작업이 끝나면:
+- 변경 사항/결과/로그/재현법은 **MD에만** 남깁니다(아래 프로세스 섹션 참조)
+
+---
+
 ## Communication / Process (MANDATORY)
 - 오더: 김현호(대표) → **공영삼(영삼봇, 팀장)**
-- 팀장: 업무 분할/테스크 전달
-- 작업자(봇): 작업 수행 후 **MD 파일에만** 작업 내용/로그/결과 정리
-- 텔레그램: 작업자/정리자는 **완료!** 한 단어만 전송(그 외 대화 금지)
-- 정리: 정리삼이 MD 기반 1차 요약 후 **완료!**만 전송
-- 최종: 팀장(영삼봇)이 MD 확인 후 더 간단히 요약하여 김현호에게 전달 + **빌드 업데이트까지 필수로 진행**
+- 팀장(공영삼): 업무 분할/테스크 전달 + 최종 보고 + **빌드 업데이트까지 필수로 진행**
+- 작업자(각 봇): 작업 수행 후 **MD 파일에만** 작업 내용/로그/결과/PR/커밋/재현법 정리
+- 정리삼: MD 기반 1차 요약(역할/결과/리스크/다음 액션) 정리 후 **완료!**만 전송
+- 텔레그램 운영 규칙(절대):
+  - 팀장만 설명/대화 가능
+  - 작업자/정리자는 **완료!** 한 단어만 전송(그 외 대화 금지)
 
-(주의) 본 문서는 `docs/HANDOFF.md`가 canonical입니다. 루트의 `HANDOFF.md`는 내부 메모/임시 파일로 남아있을 수 있으니, 프로세스상 커뮤니케이션은 이 파일과 `current_progress.md` 위주로 정리하세요.
+### Non-reset policy (중심 규칙 / 절대 초기화 방지)
+- 목적: 컨텍스트 압축/LLM 교체/세션 리셋이 있어도 **역할/프로세스/규칙**이 절대 초기화되지 않게 함.
+- Canonical(진실의 원본) 문서:
+  1) `docs/HANDOFF.md` (프로세스/규칙/역할)
+  2) `current_progress.md` (작업 진행/현황/피드백 타임라인)
+- 모든 에이전트는 세션 시작 시:
+  - `docs/HANDOFF.md`의 프로세스를 최우선으로 따르고,
+  - 새로운 규칙/변경은 반드시 `docs/HANDOFF.md`에 반영한 뒤 작업을 진행한다.
+- 텔레그램 메시지 정책:
+  - (팀장 제외) 텔레그램에서는 **"완료!" 외 금지**
+  - 질문/설명/논의는 md로만 남긴다.
+
+(주의) 본 문서는 `docs/HANDOFF.md`가 canonical입니다.
+- 루트의 `HANDOFF.md`는 내부 메모/임시 파일로 남아있을 수 있으니 무시하세요.
+- 프로세스상 커뮤니케이션/진행 기록은 `docs/HANDOFF.md` + `current_progress.md` 를 기준으로 합니다.
+
+## Hard Rules (절대 위반 금지)
+- 민감정보(예: ASC API Key .p8, 토큰/쿠키/개인정보)는 **어떤 MD/레포에도 원문을 남기지 않습니다.**
+- 텔레그램에서는(팀장 제외) **완료! 외 모든 텍스트 전송 금지**
+- 새 에이전트/LLM/세션이 떠도 위 규칙을 최우선으로 강제
 
 ## 지금 상태 (요약)
 - iPad 앱 `Car Mode` 중앙 패널에 `Map / Navi / Media`가 있음.
@@ -84,6 +116,14 @@
   - `Test Vehicles`: `/api/1/vehicles` 호출 확인
   - `Test Snapshot`: `/vehicle_data` 호출 확인(여기서 Unauthorized가 나면 scope/audience 문제일 확률이 높음)
   - `Diagnostics`에서 JWT `aud`/`scopes`를 확인 가능 (Debug 빌드)
+
+## (신규) TestFlight 업로드 키(ASC API Key) 공유 방식
+- 키 파일(.p8)은 채팅으로 공유하지 말고, **로컬 공용 폴더 경로**로 공유.
+- 이 맥미니에서는 아래 경로에 복사해둠(권한 600/700):
+  - `~/Shared/TeslaSubDash/secrets/appstoreconnect/AuthKey_*.p8`
+  - `~/Shared/TeslaSubDash/secrets/appstoreconnect/issuer_id.txt`
+- fastlane 실행용 env는 로컬 파일로 관리:
+  - `tesla-subdash-starter/fastlane/.env.asc` (git 제외)
 
 ---
 
