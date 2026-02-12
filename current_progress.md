@@ -1148,23 +1148,33 @@ When resuming work, read this file first and continue from **[다음 단계]**.
   - `docs/coupang_elephant_recommendation_fix_plan.md` (job/progress/idempotency 방향 포함)
   - 현재 job/progress/idempotency는 in-memory(MVP)라 서버 재시작시 초기화됨 → 다음 단계에서 Redis/DB로 승격 필요
 
-### [배포/메인 도메인 관련(대표 요청 @23:30)]
+### [배포/메인 도메인 관련(대표 요청 @23:30~)]
 - 메인: `https://app.splui.com/app/`
-- 현재 이 Mac mini의 cloudflared 터널 설정:
-  - `app.splui.com` → `http://localhost:3000`
-- `localhost:3000`에서 실제로 떠 있는 서비스는 Next 프로토타입이 아니라,
-  - `~/.openclaw/workspace/coupang-automation`의 `server.js`(express) + `public/app_shell.html` 입니다.
-  - 즉, 메인 반영은 **coupang-automation 쪽 UI를 새 디자인으로 맞추는 작업**이 최단거리입니다.
-- 즉시 조치(메인에 직접 반영되는 프론트 수정):
-  - `coupang-automation/public/styles.css`의 컬러/배경/쉐도우를 신 디자인(fuchsia/pink) 톤으로 1차 변경
-  - 버튼/포커스/상단바(sticky)/탭 active 그라데이션까지 신 디자인 톤으로 추가 반영
-  - 작업 브랜치: `coupang-automation` repo `fix/preview-detail-v008`
+
+#### (A) 현재 실제로 무엇이 서빙되는지(혼선 원인)
+- `https://app.splui.com/app/` 응답이 **Next.js** 형태로 바뀐 상태(Cloudflare/서버에서 Next가 떠있음)
+  - basePath가 `/app`인 상태에서 내부 링크가 `/analyze` 같이 루트로 박혀있으면 클릭 시 404로 “작동안함”처럼 보임.
+
+#### (B) 오늘 해결/추가한 것(Next 앱 기준)
+- 내부 링크를 `next/link`로 전환해서 basePath(`/app`) 자동 반영되도록 수정
+- 기존 메인에서 쓰던 경로들(`/keyword`, `/payment`, `/itemmanagement`, `/trackingSales`, `/report`, `/login`, `/signup` 등)이 404가 나지 않도록
+  **신 디자인 스켈레톤 페이지**를 우선 생성(최소한 ‘안 열림/하얀 화면’ 방지)
+
+#### (C) 서버 반영(필수)
+- 서버(메인 머신)에서 아래 수행 필요:
+  1) `cd /Users/kimhyunhomacmini/tesla-info/_repo && git pull --rebase origin main`
+  2) `cd coupang-elephant && npm install`
+  3) Next 서버 재시작(현재 운영 방식에 맞게: pm2/launchd/nohup 등)
+
+#### (D) 참고: coupang-automation(express)도 별도로 존재
+- `~/.openclaw/workspace/coupang-automation`의 `server.js` + `public/app_shell.html` 기반 UI도 별도로 운영 중이었고
+  여기도 신 디자인 톤 1차 CSS 변경(브랜치 `fix/preview-detail-v008`)까지는 적용함.
+- 지금 메인이 Next로 넘어온 상태면, 단기 우선순위는 Next 쪽 라우팅/페이지 복구가 더 급함.
 
 ### [다음 단계(속도/효과 우선)]
-1) `app_shell.html`의 레이아웃/컴포넌트(버튼/카드/필)들을 신 디자인(192.168.0.31:3333 스타일)과 완전히 동일하게 리스킨
-2) 메인 기능(발굴/분석/관리/업로드/추천/배치업로드 등) 라우팅/화면을 `app_shell` 안에서 정리(탭/사이드바/상단 네비)
-3) 추천→복수선택 업로드는 현재 구현된 job/progress/idempotency/retry 흐름을 **메인 app_shell 흐름에 이식**
-4) 필요 시 Next 기반으로 재구축(장기)하되, 단기엔 express+static UI로 빠르게 기능/디자인 동시 반영
+1) `/keyword`(발굴) / `/itemmanagement`(관리) / `/trackingSales`(추적) 페이지에 기존 기능(API/화면)을 실제로 이식
+2) 추천→복수선택→배치 업로드 job/progress/idempotency/retry를 메인 플로우에 연결(현재는 추천 페이지 중심)
+3) 배포 파이프라인(어떤 머신/어떤 프로세스가 app.splui.com:3000을 띄우는지) 확정해서 “작업=즉시반영” 구조로 고정
 
 ## 2026-02-12 (추가 업데이트 @18:55 Backend 재시작 상태)
 - `backend/server.mjs`는 현재 8787에서 실행 중(EADDRINUSE 확인됨: 이미 떠 있음)
