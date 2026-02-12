@@ -20,6 +20,8 @@ struct CarModeView: View {
     @StateObject private var naviModel = KakaoNavigationViewModel()
     @State private var showSetupSheet = false
     @State private var showMediaOverlayInNavi = false
+    @State private var showChromeInNavi: Bool = false
+    @State private var autoHideTask: Task<Void, Never>?
 
     @StateObject private var mediaWebViewStore = WebViewStore()
 
@@ -33,7 +35,7 @@ struct CarModeView: View {
             .ignoresSafeArea()
 
             content
-                .padding(16)
+                .padding(viewModel.centerMode == .navi && !showChromeInNavi ? 0 : 16)
 
             if !teslaAuth.isSignedIn {
                 VStack(spacing: 14) {
@@ -102,23 +104,25 @@ struct CarModeView: View {
             // All vehicle info + controls live in a single side bar.
             let sideWidth = max(198, min(230, proxy.size.width * 0.24))
 
-            HStack(spacing: 14) {
+            HStack(spacing: (viewModel.centerMode == .navi && !showChromeInNavi) ? 0 : 14) {
                 if showSetupSheet {
                     suspendedCenterPanel
                 } else {
                     centerPanel
                 }
 
-                Group {
-                    if showSetupSheet {
-                        suspendedSidePanel
-                    } else {
-                        sidePanel
+                if !(viewModel.centerMode == .navi && !showChromeInNavi) {
+                    Group {
+                        if showSetupSheet {
+                            suspendedSidePanel
+                        } else {
+                            sidePanel
+                        }
                     }
-                }
-                .frame(width: sideWidth)
+                    .frame(width: sideWidth)
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
             }
         }
     }
@@ -198,105 +202,165 @@ struct CarModeView: View {
     }
 
     private var centerPanel: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                CenterModeSegmentedControl(selection: $viewModel.centerMode)
-                    .frame(maxWidth: .infinity)
-                    .layoutPriority(1)
-
-                headerIconButton(systemImage: "arrow.clockwise") {
-                    Task { await viewModel.refresh() }
-                }
-                .disabled(!networkMonitor.isConnected)
-
-                if viewModel.centerMode == .navi {
-                    headerIconButton(systemImage: showMediaOverlayInNavi ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle") {
-                        showMediaOverlayInNavi.toggle()
-                    }
-                }
-
-                headerIconButton(systemImage: "person.crop.circle") {
-                    showSetupSheet = true
-                }
-            }
-
-            if !networkMonitor.isConnected {
-                HStack(spacing: 10) {
-                    Image(systemName: "wifi.slash")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.9))
-                    Text("Offline. Waiting for hotspot internet.")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.85))
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.08))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                        )
-                )
-            }
-
-            Group {
-                switch viewModel.centerMode {
-                case .navi:
-                    ZStack(alignment: .bottomTrailing) {
-                        KakaoNavigationPaneView(
-                            model: naviModel,
-                            vehicleLocation: viewModel.snapshot.vehicle.location,
-                            vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
-                            wakeVehicle: {
-                                viewModel.sendCommand("wake_up")
-                                Task {
-                                    // Wake can take a while; retry refresh multiple times to reduce manual tapping.
-                                    for attempt in 0..<6 {
-                                        let waitSeconds = attempt == 0 ? 5 : 4
-                                        try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
-                                        await viewModel.refresh()
-                                        if viewModel.snapshot.vehicle.location.isValid {
-                                            break
-                                        }
+        // Fullscreen Navi: hide chrome unless explicitly shown.
+        if viewModel.centerMode == .navi, !showChromeInNavi {
+            return AnyView(
+                ZStack(alignment: .bottomTrailing) {
+                    KakaoNavigationPaneView(
+                        model: naviModel,
+                        vehicleLocation: viewModel.snapshot.vehicle.location,
+                        vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
+                        wakeVehicle: {
+                            viewModel.sendCommand("wake_up")
+                            Task {
+                                for attempt in 0..<6 {
+                                    let waitSeconds = attempt == 0 ? 5 : 4
+                                    try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
+                                    await viewModel.refresh()
+                                    if viewModel.snapshot.vehicle.location.isValid {
+                                        break
                                     }
                                 }
                             }
-                        )
+                        }
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        toggleChromeInNavi()
+                    }
 
-                        if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
-                            DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
-                                .frame(width: 360, height: 220)
-                                .padding(14)
+                    if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
+                        DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
+                            .frame(width: 360, height: 220)
+                            .padding(14)
+                    }
+                }
+                .ignoresSafeArea()
+            )
+        }
+
+        return AnyView(
+            VStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    CenterModeSegmentedControl(selection: $viewModel.centerMode)
+                        .frame(maxWidth: .infinity)
+                        .layoutPriority(1)
+
+                    headerIconButton(systemImage: "arrow.clockwise") {
+                        Task { await viewModel.refresh() }
+                    }
+                    .disabled(!networkMonitor.isConnected)
+
+                    if viewModel.centerMode == .navi {
+                        headerIconButton(systemImage: showMediaOverlayInNavi ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle") {
+                            showMediaOverlayInNavi.toggle()
+                        }
+
+                        headerIconButton(systemImage: showChromeInNavi ? "hand.tap.fill" : "hand.tap") {
+                            toggleChromeInNavi()
                         }
                     }
-                case .media:
-                    mediaPane
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            HStack(spacing: 8) {
-                Text("Source: \(viewModel.snapshot.source)")
-                    .foregroundStyle(.white.opacity(0.75))
-                Text("Updated: \(viewModel.snapshot.updatedAt)")
-                    .foregroundStyle(.white.opacity(0.75))
-                    .lineLimit(1)
-                    .truncationMode(.head)
+                    headerIconButton(systemImage: "person.crop.circle") {
+                        showSetupSheet = true
+                    }
+                }
+
+                if !networkMonitor.isConnected {
+                    HStack(spacing: 10) {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.9))
+                        Text("Offline. Waiting for hotspot internet.")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                            )
+                    )
+                }
+
+                Group {
+                    switch viewModel.centerMode {
+                    case .navi:
+                        ZStack(alignment: .bottomTrailing) {
+                            KakaoNavigationPaneView(
+                                model: naviModel,
+                                vehicleLocation: viewModel.snapshot.vehicle.location,
+                                vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
+                                wakeVehicle: {
+                                    viewModel.sendCommand("wake_up")
+                                    Task {
+                                        for attempt in 0..<6 {
+                                            let waitSeconds = attempt == 0 ? 5 : 4
+                                            try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
+                                            await viewModel.refresh()
+                                            if viewModel.snapshot.vehicle.location.isValid {
+                                                break
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+
+                            if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
+                                DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
+                                    .frame(width: 360, height: 220)
+                                    .padding(14)
+                            }
+                        }
+                    case .media:
+                        mediaPane
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                HStack(spacing: 8) {
+                    Text("Source: \(viewModel.snapshot.source)")
+                        .foregroundStyle(.white.opacity(0.75))
+                    Text("Updated: \(viewModel.snapshot.updatedAt)")
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+                .font(.system(size: 13, weight: .medium, design: .rounded))
             }
-            .font(.system(size: 13, weight: .medium, design: .rounded))
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                )
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    )
+            )
         )
+    }
+
+    private func toggleChromeInNavi() {
+        let shouldShow = !showChromeInNavi
+        showChromeInNavi = shouldShow
+
+        autoHideTask?.cancel()
+        autoHideTask = nil
+
+        guard shouldShow else { return }
+
+        // Auto-hide after a few seconds to keep the map unobstructed.
+        autoHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if viewModel.centerMode == .navi {
+                showChromeInNavi = false
+            }
+        }
     }
 
     private func headerIconButton(systemImage: String, action: @escaping () -> Void) -> some View {
@@ -360,16 +424,47 @@ struct CarModeView: View {
         @State private var scale: CGFloat = 1.0
         @GestureState private var magnification: CGFloat = 1.0
 
+        private let minScale: CGFloat = 0.65
+        private let maxScale: CGFloat = 1.9
+
         var body: some View {
             VStack(spacing: 0) {
-                HStack {
+                HStack(spacing: 8) {
                     Text("Media")
                         .font(.system(size: 13, weight: .heavy, design: .rounded))
                         .foregroundStyle(.white.opacity(0.9))
+
                     Spacer()
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.7))
+
+                    Button("-") { scale = max(minScale, scale - 0.12) }
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.white.opacity(0.10)))
+
+                    Button("+") { scale = min(maxScale, scale + 0.12) }
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.white.opacity(0.10)))
+
+                    Button("S") { scale = 0.75 }
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.white.opacity(0.10)))
+
+                    Button("M") { scale = 1.0 }
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.white.opacity(0.10)))
+
+                    Button("L") { scale = 1.35 }
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.white.opacity(0.10)))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
@@ -402,7 +497,7 @@ struct CarModeView: View {
                     }
                     .onEnded { value in
                         let next = scale * value
-                        scale = min(1.9, max(0.65, next))
+                        scale = min(maxScale, max(minScale, next))
                     }
             )
         }
