@@ -15,6 +15,7 @@ When resuming work, read this file first and continue from **[다음 단계]**.
   - 페이지: `coupang-elephant/app/page.tsx`
   - 로컬 실행: `cd coupang-elephant && npm install && npm run dev -- --port 3333`
 - 레퍼런스 기반 스펙 문서: `docs/coupang_elephant_coupilot_clone_spec.md`
+- 실행 계획/일정 제안(유료급 품질 기준 포함): `docs/coupang_elephant_plan.md`
 - 참고: Next가 workspace root 경고를 띄울 수 있음(상위 lockfile 탐지). 기능에는 영향 없으나 추후 `turbopack.root` 설정으로 정리 가능.
 
 
