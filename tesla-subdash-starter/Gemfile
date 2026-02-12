@@ -1,0 +1,7 @@
+source "https://rubygems.org"
+
+# Keep fastlane pinned for reproducible CI/CLI behavior
+# (Install locally with: bundle install)
+gem "fastlane", "~> 2.231"
+
+gem "dotenv", "~> 2.8"

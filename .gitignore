@@ -34,8 +34,36 @@ backend/.env
 backend/.env.*
 !backend/.env.example
 
+# App Store Connect API key (never commit)
+*.p8
+
 # Tesla key material (keep local only)
 backend/keys/
 
 # Cloudflare / Wrangler
 .wrangler/
+
+# local secrets
+.secrets/
+
+# bundler
+/vendor/bundle
+/.bundle/
+
+tesla-subdash-starter/vendor/bundle/
+tesla-subdash-starter/vendor/
+tesla-subdash-starter/.bundle/
+
+# fastlane artifacts
+fastlane/report.xml
+fastlane/README.md
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# fastlane artifacts (runner folder)
+tesla-subdash-starter/fastlane/report.xml
+tesla-subdash-starter/fastlane/README.md
+tesla-subdash-starter/fastlane/Preview.html
+tesla-subdash-starter/fastlane/screenshots/
+tesla-subdash-starter/fastlane/test_output/

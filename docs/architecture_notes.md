@@ -218,3 +218,15 @@ All future implementation and refactoring should conform to these rules.
     - `TESLAMATE_AUTO_AUTH_REPAIR`
     - `TESLAMATE_AUTH_REPAIR_COOLDOWN_MS`
     - `TESLAMATE_AUTH_REPAIR_SETTLE_MS`
+
+## Update 2026-02-12 (TestFlight Release Automation)
+
+- Operational release flow (CLI) fixed:
+  - Use `tesla-subdash-starter` as the fastlane runner directory.
+  - Use App Store Connect API Key auth via env vars (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`, `APPLE_TEAM_ID`).
+- Toolchain constraint:
+  - macOS system ruby/bundler is too old for the locked bundler version.
+  - Release lane must run with Homebrew ruby on PATH:
+    - `export PATH="/opt/homebrew/opt/ruby/bin:$PATH"`
+- Sensitive material handling:
+  - `.p8` must remain local-only (gitignored) and referenced by absolute path.

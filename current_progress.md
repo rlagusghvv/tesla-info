@@ -3,6 +3,49 @@
 This file is the "single source of truth" for session continuity.
 When resuming work, read this file first and continue from **[다음 단계]**.
 
+## 2026-02-12
+
+### [스프린트 목표]
+- “TestFlight 업로드를 CLI로 재현 가능하게 만들기”
+
+### [완료]
+- Workspace scan: `ls -R` 완료
+- Xcode/CLI tool 확인:
+  - `xcodebuild -version` / `xcode-select -p` OK
+  - macOS 기본 ruby(2.6) + bundler(1.17)로는 `Gemfile.lock`의 bundler(4.0.3) 요구사항 때문에 fastlane 실행이 깨짐
+  - 해결: `export PATH="/opt/homebrew/opt/ruby/bin:$PATH"`로 Homebrew ruby(4.x) + bundler(4.0.3) 사용
+  - `bundle exec fastlane --version` OK (fastlane 2.232.1)
+- Scheme/Project 확인:
+  - `xcodebuild -list -project TeslaSubDash.xcodeproj` → scheme `TeslaSubDash` 확인
+  - Bundle ID: `com.kimhyeonho.teslasubdash`
+- 빌드 가능 여부(코드사인 제외) 재확인:
+  - `xcodebuild -project TeslaSubDash.xcodeproj -scheme TeslaSubDash -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO clean build` → **BUILD SUCCEEDED**
+- Fastlane 구성(생성/정리 완료):
+  - `tesla-subdash-starter/fastlane/Fastfile` + `Appfile` (lane: `ios beta`)
+  - 옵션 env: `ALLOW_PROVISIONING_UPDATES=1` → gym에 `-allowProvisioningUpdates` 전달(단, Xcode Accounts 로그인 필요)
+  - Runbook: `docs/testflight_release_runbook.md`
+  - `.gitignore`: `*.p8` 포함(민감정보 커밋 방지)
+
+### [실행 시도 결과]
+- `bundle exec fastlane ios beta` 실행 → 실패(예상): `Missing required env var: ASC_KEY_ID`
+  - 원인 분류: ASC API Key 환경변수 미세팅(정상적인 fail-fast)
+
+### [현재 상태]
+- CLI로 컴파일은 재현 가능(코드사인 제외).
+- TestFlight 업로드 lane은 준비되어 있으나,
+  - ASC API Key env 세팅 +
+  - 로컬 signing(배포 cert/provisioning) 준비
+  가 충족되어야 실제 업로드 가능.
+
+### [다음 단계]
+1) ASC env 세팅(로컬 전용): `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`, `APPLE_TEAM_ID`
+2) Signing 준비(로컬): 배포용 cert/provisioning 또는 Xcode 계정 로그인 후 Automatic Signing
+3) 실행:
+   - `cd tesla-subdash-starter && export PATH="/opt/homebrew/opt/ruby/bin:$PATH" && bundle install && bundle exec fastlane ios beta`
+4) 성공/실패 로그를 `current_progress.md`와 runbook에 추가
+
+---
+
 ## 2026-02-11
 
 ### [완료된 작업]

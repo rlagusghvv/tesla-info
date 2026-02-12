@@ -1,0 +1,8 @@
+# Appfile
+# NOTE: This folder is a "runner" wrapper. The actual project lives at ../TeslaSubDash.xcodeproj
+
+app_identifier(ENV["APP_IDENTIFIER"] || "com.kimhyeonho.teslasubdash")
+team_id(ENV["APPLE_TEAM_ID"] || "FCHA9MNH8C")
+
+# Optional: set your Apple ID if you plan to use -allowProvisioningUpdates (requires Xcode login)
+# apple_id(ENV["APPLE_ID"])

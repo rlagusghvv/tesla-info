@@ -1,0 +1,153 @@
+# Fastfile
+# Goal: `fastlane ios beta` produces an App Store archive and uploads to TestFlight.
+# Auth: App Store Connect API Key (no Apple ID needed for upload), via env vars.
+# Signing: still requires valid certs/profiles locally. See docs/testflight_release_runbook.md
+
+# Required env:
+# - ASC_KEY_ID
+# - ASC_ISSUER_ID
+# - ASC_KEY_PATH (absolute path to AuthKey_*.p8)
+# - APPLE_TEAM_ID
+# Optional:
+# - APP_IDENTIFIER (default: com.kimhyeonho.teslasubdash)
+# - SKIP_WAITING_FOR_BUILD_PROCESSING (default: true)
+# - ALLOW_PROVISIONING_UPDATES (default: false) -> adds -allowProvisioningUpdates to xcodebuild
+
+def require_env!(key)
+  value = ENV[key]
+  UI.user_error!("Missing required env var: #{key}") if value.nil? || value.strip.empty?
+  value
+end
+
+def env_bool(key, default: false)
+  raw = ENV[key]
+  return default if raw.nil?
+  %w[1 true yes y on].include?(raw.to_s.strip.downcase)
+end
+
+def project_path
+  "../TeslaSubDash.xcodeproj"
+end
+
+def scheme_name
+  "TeslaSubDash"
+end
+
+def default_app_identifier
+  "com.kimhyeonho.teslasubdash"
+end
+
+def default_team_id
+  "FCHA9MNH8C"
+end
+
+def build_dir
+  "./build"
+end
+
+def ipa_path
+  "#{build_dir}/TeslaSubDash.ipa"
+end
+
+def archive_path
+  "#{build_dir}/TeslaSubDash.xcarchive"
+end
+
+def maybe_allow_provisioning_updates_xcargs
+  env_bool("ALLOW_PROVISIONING_UPDATES", default: false) ? "-allowProvisioningUpdates" : ""
+end
+
+def maybe_allow_provisioning_updates_export_xcargs
+  # Export also does signing-related work. Keep the same flag.
+  maybe_allow_provisioning_updates_xcargs
+end
+
+def ensure_build_dir!
+  sh("mkdir", "-p", build_dir)
+end
+
+def ensure_required_tooling!
+  sh("xcodebuild", "-version")
+end
+
+def bump_build_number!(xcodeproj:)
+  increment_build_number(xcodeproj: xcodeproj)
+end
+
+def build_archive!(project:, scheme:, team_id:)
+  ensure_build_dir!
+
+  gym(
+    project: project,
+    scheme: scheme,
+    configuration: "Release",
+    clean: true,
+    silent: false,
+    output_directory: build_dir,
+    output_name: "TeslaSubDash.ipa",
+    export_method: "app-store",
+    xcargs: maybe_allow_provisioning_updates_xcargs,
+    export_xcargs: maybe_allow_provisioning_updates_export_xcargs,
+    export_options: {
+      teamID: team_id
+    }
+  )
+end
+
+def upload_testflight!(api_key:, ipa:)
+  skip_waiting = env_bool("SKIP_WAITING_FOR_BUILD_PROCESSING", default: true)
+
+  upload_to_testflight(
+    api_key: api_key,
+    ipa: ipa,
+    skip_waiting_for_build_processing: skip_waiting
+  )
+end
+
+def asc_api_key!
+  app_store_connect_api_key(
+    key_id: require_env!("ASC_KEY_ID"),
+    issuer_id: require_env!("ASC_ISSUER_ID"),
+    key_filepath: require_env!("ASC_KEY_PATH"),
+    in_house: false
+  )
+end
+
+def resolve_app_identifier
+  (ENV["APP_IDENTIFIER"] || default_app_identifier).strip
+end
+
+def resolve_team_id
+  (ENV["APPLE_TEAM_ID"] || default_team_id).strip
+end
+
+def preflight_summary!(app_identifier:, team_id:)
+  UI.message("App Identifier: #{app_identifier}")
+  UI.message("Apple Team ID:  #{team_id}")
+  UI.message("Xcode project:  #{project_path}")
+  UI.message("Scheme:         #{scheme_name}")
+  UI.message("Provisioning updates: #{env_bool('ALLOW_PROVISIONING_UPDATES', default: false) ? 'ON' : 'OFF'}")
+end
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Build + upload to TestFlight"
+  lane :beta do
+    ensure_required_tooling!
+
+    app_identifier = resolve_app_identifier
+    team_id = resolve_team_id
+
+    preflight_summary!(app_identifier: app_identifier, team_id: team_id)
+
+    api_key = asc_api_key!
+
+    bump_build_number!(xcodeproj: project_path)
+    build_archive!(project: project_path, scheme: scheme_name, team_id: team_id)
+
+    upload_testflight!(api_key: api_key, ipa: ipa_path)
+
+    UI.success("Uploaded to TestFlight (processing may take a while)")
+  end
+end
