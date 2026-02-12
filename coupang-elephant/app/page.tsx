@@ -128,7 +128,7 @@ export default function Home() {
                   빠르게 시작하기 →
                 </a>
                 <a
-                  href="/recommend"
+                  href="/app/recommend"
                   className="inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-bold text-neutral-800 hover:bg-black/5"
                 >
                   추천/배치 업로드
