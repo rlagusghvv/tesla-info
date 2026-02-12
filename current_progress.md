@@ -6,8 +6,16 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 ## 2026-02-12
 
 ### [쿠팡 코끼리 - 문제 파악]
-- 현재 repo(`tesla-info/_repo`)에서 "쿠팡/코끼리/coupang/elephant" 키워드 및 관련 파일명 검색 결과 0건.
-- 별도 프로젝트/레포일 가능성이 높아서, 우선 `docs/coupang_elephant_discovery.md`에 discovery 체크리스트/필요 입력을 작성.
+- 초기에는 repo(`tesla-info/_repo`)에서 "쿠팡/코끼리/coupang/elephant" 키워드 및 관련 파일명 검색 결과 0건이었음.
+- 이후 대표 레퍼런스(https://www.coupilot.net/) 제공됨 → 동일본 제작 착수.
+
+### [쿠팡 코끼리 - Coupilot 동일본 1차]
+- Next.js(App Router) + Tailwind로 랜딩 1차 동일본 생성
+  - 경로: `coupang-elephant/`
+  - 페이지: `coupang-elephant/app/page.tsx`
+  - 로컬 실행: `cd coupang-elephant && npm install && npm run dev -- --port 3333`
+- 레퍼런스 기반 스펙 문서: `docs/coupang_elephant_coupilot_clone_spec.md`
+- 참고: Next가 workspace root 경고를 띄울 수 있음(상위 lockfile 탐지). 기능에는 영향 없으나 추후 `turbopack.root` 설정으로 정리 가능.
 
 
 ### [TestFlight 업로드(빌드 24/25) – 누가/어떤 키로 업로드했나]
