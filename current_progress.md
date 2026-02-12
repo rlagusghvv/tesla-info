@@ -5,6 +5,11 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 
 ## 2026-02-12
 
+### [쿠팡 코끼리 - 문제 파악]
+- 현재 repo(`tesla-info/_repo`)에서 "쿠팡/코끼리/coupang/elephant" 키워드 및 관련 파일명 검색 결과 0건.
+- 별도 프로젝트/레포일 가능성이 높아서, 우선 `docs/coupang_elephant_discovery.md`에 discovery 체크리스트/필요 입력을 작성.
+
+
 ### [TestFlight 업로드(빌드 24/25) – 누가/어떤 키로 업로드했나]
 - 업로드 실행 주체: 이 Mac mini(OpenClaw ops 세션)에서 fastlane으로 업로드 수행
 - 인증 방식: App Store Connect API Key(.p8)
@@ -45,6 +50,16 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 - fastlane `report.xml` 갱신됨 (step `gym` + `upload_to_testflight` 실행 기록)
 - 로컬 프로젝트 빌드 넘버가 **25로 bump**된 상태(Info.plist / project.pbxproj 변경 확인)
 - 주의: TestFlight에서 실제로 보이기까지는 processing 때문에 수 분 지연될 수 있음
+
+### [사용자 피드백 - Build 25 (15:53 KST)]
+- UI: 상단에 너무 붙어있고 패널들이 겹쳐서 가시성/터치가 나쁨(상단 바 터치되는 경우). 요청: 전체를 아래로 내리고, 네비 배너/패널을 **드래그로 위치 이동 가능**하게.
+- Media: 확대/축소가 컨테이너 리사이즈가 아니라 **웹페이지 줌**처럼 동작(해결 필요).
+- Navi: 안내 시작 시 지도 auto-zoom/follow가 아직 미흡(세계지도 수준). 요청: 시작 시 줌인 + 주행 중 위치 따라 카메라 이동.
+- Fleet: 이번 빌드에서 해결 요구(퇴근길 18:00에 사용 예정).
+
+### [대표 요청 - 이사님에게 전달할 프롬프트 작성 (16:08 KST)]
+- 프롬프트 파일 생성: `docs/prompt_for_director.md`
+  - iPad mini 6 기준 UI/Media 리사이즈/Navi auto-zoom+follow/Fleet control 안정화 요구사항 정리
 
 ### [완료]
 - Workspace scan: `ls -R` 완료
