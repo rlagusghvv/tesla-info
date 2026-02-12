@@ -33,6 +33,7 @@
 		D13E3F4EC11BC62FB0D80B2B /* RootRouterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 392056DA8DDF8AFC7E238BF9 /* RootRouterView.swift */; };
 		D2640A345B9AEB4F0F86A5FA /* KakaoWebRouteMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39689E7C69892F592D7C1850 /* KakaoWebRouteMapView.swift */; };
 		DF326BD775803422DF19DEF0 /* KakaoNavigationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD155AC8C2082C1009B34E00 /* KakaoNavigationViewModel.swift */; };
+		0F3A9D0E5E2E4C6A8B1C2D3E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0F3A9D0F5E2E4C6A8B1C2D3E /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -63,6 +64,7 @@
 		EBBE9227CEF973C2492345CB /* CarModeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarModeViewModel.swift; sourceTree = "<group>"; };
 		F22EFAEB3758BFB1C9194DE8 /* StartCarModeIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartCarModeIntent.swift; sourceTree = "<group>"; };
 		F6EC9BD11A04724D55E2B3F0 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		0F3A9D0F5E2E4C6A8B1C2D3E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -128,6 +130,7 @@
 			isa = PBXGroup;
 			children = (
 				925CFF1EB43E4932AFF7A05A /* Sources */,
+				0F3A9D0F5E2E4C6A8B1C2D3E /* Assets.xcassets */,
 				160F38EE15E19D6C55A9B476 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -219,6 +222,7 @@
 			buildConfigurationList = 880193066B9507F8C9E049E7 /* Build configuration list for PBXNativeTarget "TeslaSubDash" */;
 			buildPhases = (
 				5C3DCDB59B493C14F4E7F026 /* Sources */,
+				8D21AD403949473AB217E070 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -257,6 +261,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8D21AD403949473AB217E070 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0F3A9D0E5E2E4C6A8B1C2D3E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		5C3DCDB59B493C14F4E7F026 /* Sources */ = {
@@ -365,7 +380,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -425,7 +440,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
