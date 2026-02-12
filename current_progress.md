@@ -5,6 +5,14 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 
 ## 2026-02-12
 
+### [TestFlight 업로드(빌드 24) – 누가/어떤 키로 업로드했나]
+- 업로드 실행 주체: 이 Mac mini(OpenClaw ops 세션)에서 fastlane으로 업로드 수행
+- 인증 방식: App Store Connect API Key(.p8)
+  - 로그에 `-authenticationKeyPath "/Users/kimhyunhomacmini/.openclaw/secrets/appstoreconnect/AuthKey_87GSWAQ5P2.p8"` 로 표시됨
+  - gym → upload_to_testflight 단계 모두 성공(15:04 KST)
+- 참고: 중간에 `cannot find '$naviHUDVisible' in scope` 에러는 Debug(simulator) 빌드에서 발생한 별도 로그이며, Release 아카이브/업로드 성공과는 무관
+
+
 ### [스프린트 목표]
 - “TestFlight 업로드를 CLI로 재현 가능하게 만들기”
 
@@ -1025,3 +1033,30 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 
 ### [특이 사항]
 - 리스/DRIVER 권한/차량 상태(절전, command 제한) 이슈는 별도이며, alias 개선으로도 모두 해결되지는 않을 수 있음.
+
+## 2026-02-12 (추가 요청 @15:15 Media overlay 리사이즈 UX)
+- 요구: Media(인앱 웹) 오버레이가
+  - 프리셋(S/M/L 등) 버튼 지원 +
+  - 모서리 드래그(리사이즈 핸들)로 자유 리사이즈 가능
+- 구현 메모:
+  - 현재는 드래그 이동 + scale(핀치/버튼)만 있음 → 실제 frame(width/height) 변경은 고정이라 불편
+  - 개선: width/height를 @State로 관리하고, 우하단 resize handle drag로 동적 변경
+  - 프리셋 버튼은 width/height set + (필요 시) min/max clamp
+
+## 2026-02-12 (프로세스/운영 룰 재강조 @15:19)
+- 강제 운영 원칙:
+  - (대부분의) 봇들은 텔레그램에서 대화 금지
+  - 소통은 md(handoff) 파일로만 진행
+  - md에 작업 내용 작성 완료 후, 텔레그램에는 **"완료!"** 단어 1개만 전송 가능
+- 프로세스(필수):
+  1) 김현호(대표) 오더
+  2) 공영삼(팀장) 업무 분할 및 테스크 전달
+  3) 각 봇(담당 테스크 진행)
+  4) 완료 후 md 파일에 내용 정리
+  5) 해당 작업 후 텔레그램에 "완료!"만 보내기
+  6) 전체 내용 md파일에서 정리삼이 1차 요약 (정리삼도 md 작성 후 텔레그램엔 "완료!"만)
+  7) 정리삼이 "완료!" 띄우면 공영삼(팀장)은 md 확인
+     - 1차 요약을 더 간략/쉽게 정리해서 김현호에게 전달
+     - 이 전달 과정에서 **빌드 업데이트(TestFlight 업로드) 필수**
+- 개선 과제:
+  - 현재 말이 없는 봇들의 원인(멘션-필요 설정/운영 룰 미인지/세션 문제)을 확인하고 프로세스에 맞게 동작하도록 수정
