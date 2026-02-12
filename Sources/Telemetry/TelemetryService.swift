@@ -47,34 +47,53 @@ actor TelemetryService {
     }
 
     private func sendCommandToBackend(_ command: String) async throws -> CommandResponse {
-        _ = try await fetchBackendHealth()
+        let healthWarning = await fetchBackendHealthWarning()
         let url = AppConfig.backendBaseURL.appendingPathComponent("api/vehicle/command")
         let body = try JSONSerialization.data(withJSONObject: ["command": command], options: [])
         let (data, http) = try await request(url: url, method: "POST", body: body)
 
         guard (200...299).contains(http.statusCode) else {
             let fallback = "Command failed (HTTP \(http.statusCode))."
-            throw TelemetryError.server(readBackendMessage(from: data, http: http, fallback: fallback))
+            let message = readBackendMessage(from: data, http: http, fallback: fallback)
+            throw TelemetryError.server(mergeWithHealthWarning(message, healthWarning: healthWarning))
         }
 
         do {
             let envelope = try decoder.decode(BackendCommandEnvelope.self, from: data)
+            let message = envelope.ok
+                ? envelope.message
+                : mergeWithHealthWarning(envelope.message, healthWarning: healthWarning)
             return CommandResponse(
                 ok: envelope.ok,
-                message: envelope.message,
+                message: message,
                 details: nil,
                 snapshot: envelope.snapshot
             )
         } catch {
             if isLikelyHTMLResponse(data: data, http: http) {
-                throw TelemetryError.server("Backend returned HTML instead of JSON. Check tunnel/backend health.")
+                let base = "Backend returned HTML instead of JSON. Check tunnel/backend health."
+                throw TelemetryError.server(mergeWithHealthWarning(base, healthWarning: healthWarning))
             }
             throw TelemetryError.invalidResponse
         }
     }
 
     private func fetchBackendHealth() async throws -> BackendHealthEnvelope {
-        let url = AppConfig.backendBaseURL.appendingPathComponent("health")
+        var lastError: Error?
+        for components in [["health"], ["api", "health"]] {
+            do {
+                return try await fetchBackendHealth(pathComponents: components)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? TelemetryError.server("Backend health check failed.")
+    }
+
+    private func fetchBackendHealth(pathComponents: [String]) async throws -> BackendHealthEnvelope {
+        let url = pathComponents.reduce(AppConfig.backendBaseURL) { partial, component in
+            partial.appendingPathComponent(component)
+        }
         let (data, http) = try await request(url: url, method: "GET")
 
         guard (200...299).contains(http.statusCode) else {
@@ -92,6 +111,16 @@ actor TelemetryService {
             throw TelemetryError.server("Backend health is not OK. mode=\(parsed.mode ?? "unknown")")
         }
         return parsed
+    }
+
+    private func fetchBackendHealthWarning() async -> String? {
+        do {
+            _ = try await fetchBackendHealth()
+            return nil
+        } catch {
+            let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            return message.isEmpty ? nil : message
+        }
     }
 
     private func request(url: URL, method: String, body: Data? = nil) async throws -> (Data, HTTPURLResponse) {
@@ -168,6 +197,15 @@ actor TelemetryService {
         default:
             return "Backend network error (\(error.code.rawValue)): \(error.localizedDescription)"
         }
+    }
+
+    private func mergeWithHealthWarning(_ message: String, healthWarning: String?) -> String {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let healthWarning, !healthWarning.isEmpty else { return trimmed }
+        if trimmed.lowercased().contains("health") {
+            return trimmed
+        }
+        return "\(trimmed) | backend health: \(healthWarning)"
     }
 }
 

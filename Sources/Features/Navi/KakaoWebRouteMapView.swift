@@ -219,10 +219,10 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                   lastRouteSig: ''
                 };
 
-                const NAV_LEVEL = 4;
-                const CRUISE_LEVEL = 5;
+                const NAV_LEVEL = 3;
+                const CRUISE_LEVEL = 4;
                 const IDLE_LEVEL = 6;
-                const RECENTER_METERS = 18;
+                const RECENTER_METERS = 6;
 
                 function isValidPoint(p) {
                   return Number.isFinite(p?.lat)
@@ -342,7 +342,7 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                   if (follow && vehicle) {
                     const target = toLatLng(vehicle);
                     const level = hasRoute ? NAV_LEVEL : CRUISE_LEVEL;
-                    if (mapState.map.getLevel() > level) {
+                    if (mapState.map.getLevel() !== level) {
                       mapState.map.setLevel(level, { animate: { duration: 220 } });
                     }
 
@@ -350,7 +350,8 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                       mapState.map.setCenter(target);
                     } else {
                       const moved = distanceMeters(mapState.lastVehicle, vehicle);
-                      if (moved >= RECENTER_METERS) {
+                      const recenterThreshold = speedKph > 30 ? RECENTER_METERS : 4;
+                      if (moved >= recenterThreshold) {
                         mapState.map.panTo(target);
                       }
                     }

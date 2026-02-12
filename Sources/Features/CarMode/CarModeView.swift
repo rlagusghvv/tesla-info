@@ -250,8 +250,9 @@ struct CarModeView: View {
                     showSetupSheet = true
                 }
             }
-            .padding(12)
-            .safeAreaPadding(.top, 6)
+            .padding(.trailing, 12)
+            .padding(.top, 16)
+            .safeAreaPadding(.top, 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
         .ignoresSafeArea()

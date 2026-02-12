@@ -56,13 +56,13 @@ struct KakaoRouteMapView: View {
             if !force, let lastFocusedVehicle {
                 let d = abs(lastFocusedVehicle.latitude - vehicleCoordinate.latitude)
                     + abs(lastFocusedVehicle.longitude - vehicleCoordinate.longitude)
-                if d < 0.00008 { return }
+                if d < 0.00003 { return }
             }
             lastFocusedVehicle = vehicleCoordinate
 
             let region = MKCoordinateRegion(
                 center: vehicleCoordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.010, longitudeDelta: 0.010)
+                span: MKCoordinateSpan(latitudeDelta: 0.0048, longitudeDelta: 0.0048)
             )
             withAnimation(.easeInOut(duration: 0.35)) {
                 cameraPosition = .region(region)
@@ -84,13 +84,13 @@ struct KakaoRouteMapView: View {
         if !force, let lastFocusedVehicle {
             let d = abs(lastFocusedVehicle.latitude - vehicleCoordinate.latitude)
                 + abs(lastFocusedVehicle.longitude - vehicleCoordinate.longitude)
-            if d < 0.0002 { return }
+            if d < 0.00006 { return }
         }
         lastFocusedVehicle = vehicleCoordinate
 
         let region = MKCoordinateRegion(
             center: vehicleCoordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+            span: MKCoordinateSpan(latitudeDelta: 0.0075, longitudeDelta: 0.0075)
         )
         withAnimation(.easeInOut(duration: 0.35)) {
             cameraPosition = .region(region)
