@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreLocation
 import SwiftUI
+import UIKit
 
 struct KakaoNavigationPaneView: View {
     @EnvironmentObject private var networkMonitor: NetworkMonitor
@@ -41,6 +42,8 @@ struct KakaoNavigationPaneView: View {
     private let topPanelYKey = "kakao.navi.topPanel.offset.y"
     private let bannerXKey = "kakao.navi.banner.offset.x"
     private let bannerYKey = "kakao.navi.banner.offset.y"
+    private let autoTeslaRouteSyncEnabled = false
+    private let speedCameraPOIEnabledInMinimalMode = false
 
     var body: some View {
         Group {
@@ -194,6 +197,7 @@ struct KakaoNavigationPaneView: View {
             searchFocused = false
             DispatchQueue.main.async {
                 searchFocused = false
+                dismissKeyboard()
             }
             if minimalMode {
                 hudVisible = true
@@ -204,8 +208,12 @@ struct KakaoNavigationPaneView: View {
                 revealHUDAndScheduleAutoHide()
             }
             speedCameraAlertEngine.reset()
-            scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.15)
-            scheduleTeslaRouteSync(force: true, delaySeconds: 0.2)
+            if model.route != nil {
+                scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.15)
+            }
+            if autoTeslaRouteSyncEnabled {
+                scheduleTeslaRouteSync(force: true, delaySeconds: 0.2)
+            }
             updateSpeedCameraAlerts()
         }
         .onDisappear {
@@ -221,8 +229,12 @@ struct KakaoNavigationPaneView: View {
         }
         .onChange(of: vehicleLocation) { _, _ in
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
-            scheduleSpeedCameraPOIRefresh(force: false, delaySeconds: 0.8)
-            scheduleTeslaRouteSync(force: false, delaySeconds: 0.25)
+            if model.route != nil {
+                scheduleSpeedCameraPOIRefresh(force: false, delaySeconds: 0.8)
+            }
+            if autoTeslaRouteSyncEnabled {
+                scheduleTeslaRouteSync(force: false, delaySeconds: 0.25)
+            }
             updateSpeedCameraAlerts()
         }
         .onChange(of: vehicleSpeedKph) { _, _ in
@@ -230,18 +242,24 @@ struct KakaoNavigationPaneView: View {
             updateSpeedCameraAlerts()
         }
         .onChange(of: model.routeRevision) { _, _ in
-            scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.1)
+            if model.route != nil {
+                scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.1)
+            }
             updateSpeedCameraAlerts()
         }
         .onChange(of: kakaoConfig.restAPIKey) { _, _ in
-            scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.1)
+            if model.route != nil {
+                scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.1)
+            }
             updateSpeedCameraAlerts()
         }
         .onChange(of: model.speedCameraRevision) { _, _ in
             updateSpeedCameraAlerts()
         }
         .onChange(of: teslaRouteSignature) { _, _ in
-            scheduleTeslaRouteSync(force: true, delaySeconds: 0.12)
+            if autoTeslaRouteSyncEnabled {
+                scheduleTeslaRouteSync(force: true, delaySeconds: 0.12)
+            }
         }
         .onChange(of: hudVisible) { _, visible in
             if !visible {
@@ -252,56 +270,277 @@ struct KakaoNavigationPaneView: View {
 
     private var minimalAssistBody: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 10) {
-                header
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Assist Navigation")
+                            .font(.system(size: 21, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.88))
+                        Text("지도 렌더링 없이 경량 주행 보조")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.56))
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        Task {
+                            await runSearch()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.75))
+                            .frame(width: 38, height: 38)
+                            .background(
+                                Circle()
+                                    .fill(Color(red: 0.94, green: 0.95, blue: 0.98))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.isSearching)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(tossCardBackground())
 
                 if kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    missingKeyCard
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Kakao REST API key is missing")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.82))
+                        Text("Account > Navigation (Kakao)에서 REST 키를 입력해 주세요.")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.62))
+                    }
+                    .padding(12)
+                    .background(tossCardBackground())
                 } else {
-                    searchBar
-                    favoriteDestinationsRow
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            TextField("목적지 검색", text: $model.query)
+                                .focused($searchFocused)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .submitLabel(.search)
+                                .onSubmit {
+                                    Task { await runSearch() }
+                                }
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(red: 0.95, green: 0.96, blue: 0.99))
+                                )
+                                .foregroundStyle(Color.black.opacity(0.82))
+
+                            Button(model.isSearching ? "..." : "Search") {
+                                Task { await runSearch() }
+                            }
+                            .buttonStyle(SecondaryCarButtonStyle(fontSize: 14, height: 44, cornerRadius: 12))
+                            .frame(width: 92)
+                            .disabled(model.isSearching)
+                        }
+
+                        HStack(spacing: 8) {
+                            minimalFavoriteButton(slot: .home)
+                            minimalFavoriteButton(slot: .work)
+
+                            if model.route != nil {
+                                Button("경로 종료") {
+                                    model.clearRoute()
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 13, height: 36, cornerRadius: 10))
+                                .frame(width: 86)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(tossCardBackground())
                 }
 
-                routeInfo
+                minimalDrivingCard
+
+                if let status = destinationPushStatus {
+                    Text(status.message)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(status.ok ? Color.green : Color.orange)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(tossCardBackground())
+                }
+
+                if let message = model.errorMessage {
+                    Text(message)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.red.opacity(0.88))
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(tossCardBackground())
+                }
 
                 if !model.results.isEmpty {
-                    resultsOverlay
+                    minimalResultsList
                 }
-
-                if model.route != nil {
-                    turnByTurnBanner(next: model.nextGuide)
-                } else if model.results.isEmpty {
-                    compactHowToCard
-                }
-
-                Text("Assist mode: map hidden for stability")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.74))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.black.opacity(0.44))
-                    )
             }
             .padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.black.opacity(0.24), Color.blue.opacity(0.20)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(Color(red: 0.97, green: 0.98, blue: 1.0))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var minimalDrivingCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(Int(max(0, vehicleSpeedKph.rounded())))")
+                    .font(.system(size: 46, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.black.opacity(0.90))
+                Text("km/h")
+                    .font(.system(size: 18, weight: .black, design: .rounded))
+                    .foregroundStyle(Color.black.opacity(0.62))
+
+                Spacer(minLength: 8)
+
+                if let route = model.route {
+                    Text(distanceDurationText(route: route))
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.72))
+                } else {
+                    Text("경로 없음")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.55))
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text(model.nextGuide?.guidance ?? "안내 대기 중")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.black.opacity(0.84))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.68)
+                Spacer(minLength: 8)
+                if let meters = model.distanceToNextGuideMeters() {
+                    Text("\(meters)m")
+                        .font(.system(size: 36, weight: .black, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.blue.opacity(0.92))
+                }
+            }
+
+            HStack(spacing: 8) {
+                if let cameraMeters = model.distanceToNextSpeedCameraMeters() {
+                    Label("과속 카메라 \(cameraMeters)m", systemImage: "camera.viewfinder")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.orange.opacity(0.92))
+                }
+
+                if let source = locationSourceLabel, !source.isEmpty {
+                    Text("위치 소스: \(source)")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.52))
+                }
+            }
+        }
+        .padding(12)
+        .background(tossCardBackground())
+    }
+
+    private var minimalResultsList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("검색 결과")
+                .font(.system(size: 13, weight: .black, design: .rounded))
+                .foregroundStyle(Color.black.opacity(0.75))
+
+            ForEach(model.results.prefix(5)) { place in
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(place.name)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.85))
+                    Text(place.address)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.55))
+                        .lineLimit(1)
+
+                    HStack(spacing: 6) {
+                        Button("경로") {
+                            Task { await startRoute(to: place) }
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle(fontSize: 13, height: 34, cornerRadius: 10))
+
+                        Button("Tesla") {
+                            Task { await pushDestinationToTesla(place) }
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle(fontSize: 13, height: 34, cornerRadius: 10))
+                        .disabled(sendDestinationToVehicle == nil)
+
+                        Button("집 저장") {
+                            model.saveFavorite(.home, place: place)
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle(fontSize: 11, height: 34, cornerRadius: 10))
+
+                        Button("직장 저장") {
+                            model.saveFavorite(.work, place: place)
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle(fontSize: 11, height: 34, cornerRadius: 10))
+                    }
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(red: 0.95, green: 0.96, blue: 0.99))
+                )
+            }
+        }
+        .padding(12)
+        .background(tossCardBackground())
+    }
+
+    private func minimalFavoriteButton(slot: KakaoNavigationViewModel.FavoriteSlot) -> some View {
+        let destination = model.favorite(for: slot)
+        return Button {
+            Task { await routeToFavorite(slot) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: slot == .home ? "house.fill" : "briefcase.fill")
+                    .font(.system(size: 11, weight: .bold))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(slot.title)
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                    Text(destination?.name ?? "미설정")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(Color.black.opacity(destination == nil ? 0.46 : 0.75))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(red: 0.94, green: 0.95, blue: 0.98))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(destination == nil || model.isRouting)
+    }
+
+    private func tossCardBackground() -> some View {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
     }
 
     @ViewBuilder
@@ -893,6 +1132,12 @@ struct KakaoNavigationPaneView: View {
     }
 
     private func scheduleSpeedCameraPOIRefresh(force: Bool, delaySeconds: Double) {
+        if minimalMode && !speedCameraPOIEnabledInMinimalMode {
+            return
+        }
+        if model.route == nil {
+            return
+        }
         speedCameraRefreshTask?.cancel()
         speedCameraRefreshTask = Task { @MainActor in
             if delaySeconds > 0 {
@@ -911,6 +1156,7 @@ struct KakaoNavigationPaneView: View {
     }
 
     private func scheduleTeslaRouteSync(force: Bool, delaySeconds: Double) {
+        guard autoTeslaRouteSyncEnabled else { return }
         guard minimalMode else { return }
         teslaRouteSyncTask?.cancel()
         teslaRouteSyncTask = Task { @MainActor in
@@ -1155,6 +1401,10 @@ struct KakaoNavigationPaneView: View {
         )
         turnBannerAnchorOffset = turnBannerOffset
         persistPanelOffsets()
+    }
+
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 

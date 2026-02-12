@@ -171,7 +171,10 @@ struct CarModeView: View {
 
             ZStack {
                 LinearGradient(
-                    colors: [Color.black, Color(red: 0.05, green: 0.09, blue: 0.16)],
+                    colors: [
+                        Color(red: 0.96, green: 0.97, blue: 0.99),
+                        Color(red: 0.91, green: 0.94, blue: 0.99)
+                    ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -186,11 +189,11 @@ struct CarModeView: View {
                     VStack(spacing: 14) {
                         Text("Tesla login required")
                             .font(.system(size: 22, weight: .heavy, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color.black.opacity(0.86))
 
                         Text("Exit Car Mode to connect your Tesla account.")
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.8))
+                            .foregroundStyle(Color.black.opacity(0.64))
 
                         Button {
                             router.showGuide()
@@ -203,12 +206,13 @@ struct CarModeView: View {
                     .padding(18)
                     .background(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color.white.opacity(0.10))
+                            .fill(Color.white)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
                             )
                     )
+                    .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 6)
                     .padding(24)
                 }
             }
@@ -236,10 +240,10 @@ struct CarModeView: View {
 
     private var content: some View {
         GeometryReader { proxy in
-            let centerHeight = min(430, max(250, proxy.size.height * 0.52))
-            let sideHeight = min(320, max(180, proxy.size.height - centerHeight - 24))
+            let centerHeight = min(360, max(220, proxy.size.height * 0.42))
+            let sideHeight = max(260, proxy.size.height - centerHeight - 16)
 
-            VStack(spacing: 10) {
+            VStack(spacing: 12) {
                 regularCenterPanel
                     .frame(height: centerHeight)
 
@@ -389,20 +393,34 @@ struct CarModeView: View {
     private var regularCenterPanel: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
-                CenterModeSegmentedControl(selection: $viewModel.centerMode)
-                    .frame(maxWidth: .infinity)
-                    .layoutPriority(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Drive Assist")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.88))
+                    Text("가볍고 안정적인 iPhone 주행 보조")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.58))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+
+                HStack(spacing: 8) {
+                    statusPill(
+                        text: networkMonitor.isConnected ? "ONLINE" : "OFFLINE",
+                        tint: networkMonitor.isConnected ? Color.blue : Color.gray
+                    )
+
+                    statusPill(
+                        text: viewModel.snapshot.vehicle.onlineState.uppercased(),
+                        tint: viewModel.snapshot.vehicle.onlineState.lowercased() == "online" ? Color.green : Color.orange
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
                 headerIconButton(systemImage: "arrow.clockwise") {
                     Task { await viewModel.refresh() }
                 }
                 .disabled(!networkMonitor.isConnected)
-
-                if !usePhoneSizedLayout {
-                    headerIconButton(systemImage: showChromeInNavi ? "hand.tap.fill" : "hand.tap") {
-                        toggleChromeInNavi()
-                    }
-                }
 
                 headerIconButton(systemImage: "person.crop.circle") {
                     router.showGuide()
@@ -413,53 +431,60 @@ struct CarModeView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "wifi.slash")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.9))
-                    Text("Offline. Waiting for hotspot internet.")
+                        .foregroundStyle(Color.orange)
+                    Text("핫스팟 연결 대기 중입니다.")
                         .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.85))
+                        .foregroundStyle(Color.black.opacity(0.72))
                     Spacer()
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.08))
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(red: 1.0, green: 0.96, blue: 0.90))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.orange.opacity(0.22), lineWidth: 1)
                         )
                 )
             }
 
-            Group {
-                switch viewModel.centerMode {
-                case .navi:
-                    naviPane
-                case .media:
-                    naviPane
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .top)
+            naviPane
+                .frame(maxWidth: .infinity, alignment: .top)
 
             HStack(spacing: 8) {
-                Text("Source: \(viewModel.snapshot.source)")
-                    .foregroundStyle(.white.opacity(0.75))
-                Text("Updated: \(viewModel.snapshot.updatedAt)")
-                    .foregroundStyle(.white.opacity(0.75))
+                Text("Source \(viewModel.snapshot.source)")
+                    .foregroundStyle(Color.black.opacity(0.55))
+                Text("Updated \(viewModel.snapshot.updatedAt)")
+                    .foregroundStyle(Color.black.opacity(0.55))
                     .lineLimit(1)
                     .truncationMode(.head)
+                Spacer(minLength: 0)
             }
-            .font(.system(size: 13, weight: .medium, design: .rounded))
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
         }
         .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color.white.opacity(0.06))
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
                 )
         )
+        .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 8)
+    }
+
+    private func statusPill(text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .black, design: .rounded))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.12))
+            )
     }
 
     private func toggleChromeInNavi() {
@@ -469,12 +494,16 @@ struct CarModeView: View {
     private func headerIconButton(systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 46, height: 46)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Color(red: 0.18, green: 0.22, blue: 0.30))
+                .frame(width: 42, height: 42)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(0.16))
+                        .fill(Color(red: 0.92, green: 0.94, blue: 0.98))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -717,97 +746,79 @@ struct CarModeView: View {
     }
 
     private var sidePanel: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 12) {
-                card {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(viewModel.snapshot.vehicle.displayName)
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
+        VStack(spacing: 10) {
+            card {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(viewModel.snapshot.vehicle.displayName)
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.90))
 
-                        Text(viewModel.snapshot.vehicle.onlineState.uppercased())
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.75))
-
-                        Divider().overlay(Color.white.opacity(0.2))
-
-                        metricRow(title: "Speed", value: viewModel.speedText)
-                        metricRow(title: "Battery", value: viewModel.batteryText)
-                        metricRow(title: "Range", value: viewModel.rangeText)
-                        metricRow(title: "Lock", value: viewModel.lockText)
-                        metricRow(title: "Climate", value: viewModel.climateText)
-                    }
-                }
-
-                card {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Tesla Route")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.85))
-                        Text(viewModel.navigationDestinationText)
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
+                    HStack(spacing: 6) {
+                        statusPill(
+                            text: viewModel.snapshot.vehicle.onlineState.uppercased(),
+                            tint: viewModel.snapshot.vehicle.onlineState.lowercased() == "online" ? Color.green : Color.orange
+                        )
                         Text(viewModel.navigationSummaryText)
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.78))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.56))
                             .lineLimit(1)
                     }
+
+                    Divider().overlay(Color.black.opacity(0.08))
+
+                    metricRow(title: "Speed", value: viewModel.speedText)
+                    metricRow(title: "Battery", value: viewModel.batteryText)
+                    metricRow(title: "Range", value: viewModel.rangeText)
+                    metricRow(title: "Lock", value: viewModel.lockText)
+                    metricRow(title: "Climate", value: viewModel.climateText)
                 }
-
-                card {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Location")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.85))
-                        Text(viewModel.locationText)
-                            .font(.system(size: 17, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .minimumScaleFactor(0.7)
-                    }
-                }
-
-                if let message = viewModel.errorMessage {
-                    card {
-                        Text(message)
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.red.opacity(0.95))
-                            .lineLimit(6)
-                            .truncationMode(.tail)
-                    }
-                }
-
-                controlsGrid
-
-                Button {
-                    router.showGuide()
-                } label: {
-                    Label("Exit Car Mode", systemImage: "arrowshape.turn.up.backward.fill")
-                }
-                .buttonStyle(SecondaryCarButtonStyle(fontSize: 17, height: 54, cornerRadius: 14))
-
-                if viewModel.isCommandRunning {
-                    card {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                                .tint(.white)
-                            Text("Sending command...")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.9))
-                        }
-                    }
-                }
-
-                if let commandMessage = viewModel.commandMessage {
-                    card {
-                        Text(commandMessage)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.9))
-                    }
-                }
-
-                Spacer(minLength: 0)
             }
+
+            card {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Vehicle Controls")
+                        .font(.system(size: 15, weight: .black, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.86))
+                    controlsGrid
+                }
+            }
+
+            if viewModel.isCommandRunning {
+                card {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .tint(.blue)
+                        Text("Sending command...")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.78))
+                    }
+                }
+            }
+
+            if let commandMessage = viewModel.commandMessage {
+                card {
+                    Text(commandMessage)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.78))
+                }
+            }
+
+            if let message = viewModel.errorMessage {
+                card {
+                    Text(message)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.red.opacity(0.88))
+                        .lineLimit(4)
+                        .truncationMode(.tail)
+                }
+            }
+
+            Button {
+                router.showGuide()
+            } label: {
+                Label("Exit Car Mode", systemImage: "arrowshape.turn.up.backward.fill")
+            }
+            .buttonStyle(SecondaryCarButtonStyle(fontSize: 17, height: 52, cornerRadius: 14))
         }
     }
 
@@ -1048,10 +1059,10 @@ struct CarModeView: View {
     private func metricRow(title: String, value: String) -> some View {
         HStack {
             Text(title)
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(Color.black.opacity(0.55))
             Spacer()
             Text(value)
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.black.opacity(0.88))
                 .fontWeight(.bold)
         }
         .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -1059,15 +1070,16 @@ struct CarModeView: View {
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .padding(10)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
+                    .fill(Color.white)
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                            .stroke(Color.black.opacity(0.06), lineWidth: 1)
                     )
             )
+            .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 6)
     }
 }

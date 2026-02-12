@@ -17,13 +17,13 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="L0g-0o-g0o">
-                                <rect key="frame" x="170.5" y="380" width="52" height="44"/>
+                                <rect key="frame" x="178.5" y="389" width="36" height="30"/>
                                 <preferredSymbolConfiguration key="preferredSymbolConfiguration" configurationType="monochrome"/>
                                 <color key="tintColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                             </imageView>
                             <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="TeslaSubDash" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="XyZ-1a-bcd">
-                                <rect key="frame" x="20" y="432" width="353" height="18"/>
-                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="15"/>
+                                <rect key="frame" x="20" y="425" width="353" height="15"/>
+                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="12"/>
                                 <color key="textColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                             </label>
                         </subviews>
@@ -32,7 +32,7 @@
                         <constraints>
                             <constraint firstItem="L0g-0o-g0o" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="lg-cx"/>
                             <constraint firstItem="L0g-0o-g0o" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-12" id="lg-cy"/>
-                            <constraint firstItem="XyZ-1a-bcd" firstAttribute="top" secondItem="L0g-0o-g0o" secondAttribute="bottom" constant="8" id="tx-1"/>
+                            <constraint firstItem="XyZ-1a-bcd" firstAttribute="top" secondItem="L0g-0o-g0o" secondAttribute="bottom" constant="6" id="tx-1"/>
                             <constraint firstItem="XyZ-1a-bcd" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="cX-1"/>
                             <constraint firstItem="XyZ-1a-bcd" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="6Tk-OE-BBY" secondAttribute="leading" constant="20" id="ld-1"/>
                             <constraint firstItem="6Tk-OE-BBY" firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="XyZ-1a-bcd" secondAttribute="trailing" constant="20" id="tr-1"/>
