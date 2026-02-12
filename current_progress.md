@@ -1104,3 +1104,17 @@ When resuming work, read this file first and continue from **[다음 단계]**.
     - ASC_ISSUER_ID
     - ASC_KEY_PATH (AuthKey_*.p8 절대경로)
     - APPLE_TEAM_ID
+
+## 2026-02-12 (추가 업데이트 @18:52 쿠팡 코끼리 진행상황)
+- Coupilot 레퍼런스 기반 랜딩 1차: `coupang-elephant/app/page.tsx`
+- "돌아가게" MVP 기능(테스트용):
+  - 분석: `GET /analyze` + `POST /api/analyze`
+  - 추천/복수선택 업로드(배치 업로드): `GET /recommend` + `POST /api/upload/batch`
+    - 배치 업로드 결과를 상품별로 success/fail 분해 표시(전체 실패처럼 보이는 문제 방지)
+- 배치 업로드 오류(대표 피드백) 대응 문서:
+  - `docs/coupang_elephant_recommendation_fix_plan.md` (job/progress/idempotency 방향 포함)
+
+## 2026-02-12 (추가 업데이트 @18:55 Backend 재시작 상태)
+- `backend/server.mjs`는 현재 8787에서 실행 중(EADDRINUSE 확인됨: 이미 떠 있음)
+- `GET http://127.0.0.1:8787/health` -> ok:true, mode=teslamate 응답 확인
+- 참고: 이전 실행 세션이 SIGKILL 된 것은 도구 실행 타임아웃으로 프로세스가 강제 종료된 케이스. 실제 운영은 launchd/pm2 등으로 상시 실행 권장.
