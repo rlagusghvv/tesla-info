@@ -25,6 +25,7 @@ export default function UploadPage() {
   const [preview, setPreview] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string>("");
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   const doPreview = async () => {
     setBusy(true);
@@ -34,6 +35,11 @@ export default function UploadPage() {
         method: "POST",
         body: JSON.stringify({ url }),
       });
+      if (r.status === 401) {
+        setNeedsLogin(true);
+        setLog((s) => `${s}\n로그인 필요 (콘솔에서 로그인 후 다시 시도)`);
+        return;
+      }
       if (r.ok && r.json?.ok) {
         setPreview(r.json);
         setLog((s) => `${s}\npreview ok`);
@@ -52,6 +58,11 @@ export default function UploadPage() {
         method: "POST",
         body: JSON.stringify({ url, force: "0" }),
       });
+      if (r.status === 401) {
+        setNeedsLogin(true);
+        setLog((s) => `${s}\n로그인 필요 (콘솔에서 로그인 후 다시 시도)`);
+        return;
+      }
       if (r.ok && r.json?.ok) {
         setLog((s) => `${s}\nqueued`);
       } else {
@@ -64,6 +75,28 @@ export default function UploadPage() {
 
   return (
     <Shell title="업로드" subtitle="URL → 미리보기 → 큐">
+      {needsLogin ? (
+        <section className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
+          <div className="text-lg font-extrabold">로그인이 필요합니다</div>
+          <p className="mt-2 text-sm text-neutral-600">
+            레거시 콘솔에서 로그인/세션 저장 후 이용 가능합니다.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <a
+              className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-5 py-2 text-sm font-bold text-white hover:bg-neutral-800"
+              href="/app/console"
+            >
+              콘솔 열고 로그인
+            </a>
+            <button
+              className="rounded-full px-5 py-2 text-sm font-bold text-neutral-800 hover:bg-black/5"
+              onClick={() => setNeedsLogin(false)}
+            >
+              닫기
+            </button>
+          </div>
+        </section>
+      ) : (
       <section className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
         <div className="text-sm font-extrabold">도매꾹/도매매 링크</div>
         <input
@@ -116,6 +149,7 @@ export default function UploadPage() {
           </div>
         </div>
       </section>
+      )}
     </Shell>
   );
 }

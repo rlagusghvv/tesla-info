@@ -51,6 +51,13 @@ export default function RecommendPage() {
       apiJson("/api/recommendations/status"),
     ]);
 
+    const unauthorized = a.status === 401 || b.status === 401;
+    setNeedsLogin(unauthorized);
+    if (unauthorized) {
+      setStatusText("로그인 필요");
+      return;
+    }
+
     if (a.ok && a.json?.ok) {
       setItems(Array.isArray(a.json.items) ? a.json.items : []);
     }
@@ -68,6 +75,8 @@ export default function RecommendPage() {
       setStatusText(msg || "-");
     }
   };
+
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   useEffect(() => {
     refresh();
@@ -138,6 +147,28 @@ export default function RecommendPage() {
 
   return (
     <Shell title="추천" subtitle={statusText}>
+      {needsLogin ? (
+        <section className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
+          <div className="text-lg font-extrabold">로그인이 필요합니다</div>
+          <p className="mt-2 text-sm text-neutral-600">
+            기존 기능(세션/설정/추천 캐시)은 레거시 서버(콘솔)에서 로그인 후 사용할 수 있어요.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <a
+              className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-5 py-2 text-sm font-bold text-white hover:bg-neutral-800"
+              href="/app/console"
+            >
+              콘솔 열고 로그인
+            </a>
+            <button
+              className="rounded-full px-5 py-2 text-sm font-bold text-neutral-800 hover:bg-black/5"
+              onClick={refresh}
+            >
+              다시 시도
+            </button>
+          </div>
+        </section>
+      ) : (
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <section className="md:col-span-2 rounded-3xl border border-black/10 bg-white p-5 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
           <div className="flex flex-wrap items-center gap-2">
@@ -227,6 +258,7 @@ export default function RecommendPage() {
           </pre>
         </section>
       </div>
+      )}
     </Shell>
   );
 }
