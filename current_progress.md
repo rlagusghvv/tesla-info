@@ -867,3 +867,45 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 
 ### [특이 사항]
 - Swift UI 변경은 별도 미커밋 상태로 유지, 이번 핸드오프는 서버 운영 절차만 대상으로 함.
+
+## 2026-02-12 (추가 업데이트 @TeslaMate 위치 누락 재발 대응)
+
+### [완료된 작업]
+- 작업 재개 절차 준수:
+  - 프로젝트 루트 `ls -R` 재실행
+  - `current_progress.md` 선확인 후 이어서 수정
+- 백엔드 자동복구 로직 추가 (`backend/server.mjs`):
+  - `TESLAMATE_API_BASE` 기본값을 `http://127.0.0.1:8080`으로 보강 (env 누락 시 즉시 크래시 방지)
+  - TeslaMate fetch 실패 시 auth 실패 패턴 감지:
+    - 401/403
+    - no cars / not signed in / token/auth 관련 메시지
+  - 감지 시 자동복구 수행:
+    1) Fleet refresh token으로 access token 갱신
+    2) `.env` 토큰 갱신 저장
+    3) TeslaMate runtime token sync (`TeslaMate.Auth.save`)
+    4) settle 후 TeslaMate fetch 재시도
+  - cooldown + in-flight guard로 과도한 재시도 방지
+  - `/health`에 auth repair 상태/설정 노출
+  - 수동 트리거 endpoint 추가:
+    - `POST /api/teslamate/repair-auth`
+- 설정/문서 업데이트:
+  - `backend/.env.example`에 auto-repair 변수 추가
+  - `README.md` TeslaMate 섹션/검증 명령/API contract 갱신
+  - `docs/architecture_notes.md`에 "Backend Auto Auth-Repair for TeslaMate" 반영
+
+### [현재 상태]
+- TeslaMate 모드에서 env 누락으로 바로 죽는 케이스가 완화됨.
+- 토큰 만료/세션 이탈로 인한 위치 누락 재발 시 backend가 자동으로 self-heal 시도 가능.
+- 운영자가 필요 시 `POST /api/teslamate/repair-auth`로 수동 복구 가능.
+
+### [다음 단계]
+- 맥미니에서 pull 후 실제 검증:
+  1) `npm run backend:start:teslamate:lan`
+  2) `curl http://127.0.0.1:8787/health` (authRepair 필드 확인)
+  3) `curl http://127.0.0.1:8787/api/vehicle/latest`
+  4) 필요 시 `curl -X POST http://127.0.0.1:8787/api/teslamate/repair-auth`
+- 문제 재현 시 `/health`의 `teslaMateAuthRepairState` 값과 backend 로그를 같이 수집.
+
+### [특이 사항]
+- 자동복구는 `.env`의 `TESLA_CLIENT_ID` + `TESLA_USER_REFRESH_TOKEN` + Docker/TeslaMate 컨테이너 접근 가능성이 전제임.
+- 근본적으로 TeslaMate upstream refresh endpoint 정합성 이슈가 남아 있으므로, 본 패치는 운영 안정화를 위한 방어층임.

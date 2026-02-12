@@ -1,43 +1,16 @@
 import http from 'node:http';
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadEnvFile, upsertEnvFile } from './env.mjs';
 import { createTeslaMateClient } from './teslamate_client.mjs';
+import { syncTokensToTeslaMateRuntime } from './teslamate_token_bridge.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const ROOT_ENV_PATH = path.resolve(__dirname, '../.env');
 
-loadEnvFile(path.resolve(__dirname, '../.env'));
-
-function loadEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) {
-    return;
-  }
-
-  const raw = fs.readFileSync(filePath, 'utf8');
-  const lines = raw.split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-    const idx = trimmed.indexOf('=');
-    if (idx < 0) {
-      continue;
-    }
-
-    const key = trimmed.slice(0, idx).trim();
-    const value = trimmed.slice(idx + 1).trim().replace(/^['"]|['"]$/g, '');
-    if (!key) {
-      continue;
-    }
-
-    if (process.env[key] === undefined) {
-      process.env[key] = value;
-    }
-  }
-}
+loadEnvFile(ROOT_ENV_PATH);
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -47,18 +20,33 @@ const USE_TESLAMATE = DATA_SOURCE === 'teslamate' || process.env.USE_TESLAMATE =
 const MODE = USE_SIMULATOR ? 'simulator' : USE_TESLAMATE ? 'teslamate' : 'fleet';
 const POLL_ENABLED = process.env.POLL_TESLA === '1' || process.env.POLL_ENABLED === '1';
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 8000);
-const TESLA_USER_ACCESS_TOKEN = process.env.TESLA_USER_ACCESS_TOKEN || process.env.TESLA_ACCESS_TOKEN || '';
+let TESLA_USER_ACCESS_TOKEN = process.env.TESLA_USER_ACCESS_TOKEN || process.env.TESLA_ACCESS_TOKEN || '';
+let TESLA_USER_REFRESH_TOKEN = process.env.TESLA_USER_REFRESH_TOKEN || '';
 const TESLA_VIN = process.env.TESLA_VIN || '';
 const TESLA_FLEET_API_BASE = process.env.TESLA_FLEET_API_BASE || 'https://fleet-api.prd.na.vn.cloud.tesla.com';
-const TESLA_TOKEN_GRANT_TYPE = inferJwtGrantType(TESLA_USER_ACCESS_TOKEN);
-const TESLAMATE_API_BASE = process.env.TESLAMATE_API_BASE || '';
+let TESLA_TOKEN_GRANT_TYPE = inferJwtGrantType(TESLA_USER_ACCESS_TOKEN);
+const TESLA_CLIENT_ID = process.env.TESLA_CLIENT_ID || '';
+const TESLA_CLIENT_SECRET = process.env.TESLA_CLIENT_SECRET || '';
+const TESLA_TOKEN_URL = process.env.TESLA_TOKEN_URL || 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
+const TESLAMATE_API_BASE = process.env.TESLAMATE_API_BASE || 'http://127.0.0.1:8080';
 const TESLAMATE_API_TOKEN = process.env.TESLAMATE_API_TOKEN || '';
 const TESLAMATE_CAR_ID = process.env.TESLAMATE_CAR_ID || '';
 const TESLAMATE_AUTH_HEADER = process.env.TESLAMATE_AUTH_HEADER || 'Authorization';
 const TESLAMATE_TOKEN_QUERY_KEY = process.env.TESLAMATE_TOKEN_QUERY_KEY || '';
+const TESLAMATE_CONTAINER_NAME = process.env.TESLAMATE_CONTAINER_NAME || 'teslamate-stack-teslamate-1';
+const TESLAMATE_AUTO_AUTH_REPAIR = process.env.TESLAMATE_AUTO_AUTH_REPAIR !== '0';
+const TESLAMATE_AUTH_REPAIR_COOLDOWN_MS = Math.max(10_000, Number(process.env.TESLAMATE_AUTH_REPAIR_COOLDOWN_MS || 180_000));
+const TESLAMATE_AUTH_REPAIR_SETTLE_MS = Math.max(1_000, Number(process.env.TESLAMATE_AUTH_REPAIR_SETTLE_MS || 3_000));
 const runtime = {
   resolvedVin: TESLA_VIN,
-  resolvedTeslaMateCarId: TESLAMATE_CAR_ID || null
+  resolvedTeslaMateCarId: TESLAMATE_CAR_ID || null,
+  authRepair: {
+    inFlight: false,
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    lastReason: null,
+    lastError: null
+  }
 };
 
 const SIM_ROUTE = [
@@ -120,6 +108,8 @@ if (state.mode === 'teslamate') {
     tokenQueryKey: TESLAMATE_TOKEN_QUERY_KEY
   });
 }
+
+let teslaMateAuthRepairInFlight = null;
 
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
@@ -420,15 +410,186 @@ async function fetchTeslaMateCars() {
   return teslaMateClient.fetchCars();
 }
 
+function isLikelyTeslaMateAuthFailure(error) {
+  const status = Number(error?.status || 0);
+  if (status === 401 || status === 403) {
+    return true;
+  }
+
+  const text = String(error?.message || '').toLowerCase();
+  if (!text) {
+    return false;
+  }
+
+  return (
+    text.includes('returned no cars') ||
+    text.includes('not signed in') ||
+    text.includes('not_signed_in') ||
+    text.includes('unauthorized') ||
+    text.includes('forbidden') ||
+    text.includes('token') ||
+    text.includes('authentication')
+  );
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function refreshFleetUserToken() {
+  if (!TESLA_CLIENT_ID || !TESLA_USER_REFRESH_TOKEN) {
+    throw new Error('Missing TESLA_CLIENT_ID or TESLA_USER_REFRESH_TOKEN for auto auth repair.');
+  }
+
+  const body = new URLSearchParams();
+  body.set('grant_type', 'refresh_token');
+  body.set('client_id', TESLA_CLIENT_ID);
+  body.set('refresh_token', TESLA_USER_REFRESH_TOKEN);
+  if (TESLA_CLIENT_SECRET) {
+    body.set('client_secret', TESLA_CLIENT_SECRET);
+  }
+
+  const res = await fetch(TESLA_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body
+  });
+
+  const text = await res.text();
+  let parsed;
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    parsed = { raw: text };
+  }
+
+  if (!res.ok) {
+    const message = parsed?.error_description || parsed?.error || text || `HTTP ${res.status}`;
+    throw new Error(`Token refresh failed (${res.status}): ${message}`);
+  }
+
+  const accessToken = String(parsed?.access_token || '').trim();
+  const nextRefreshToken = String(parsed?.refresh_token || TESLA_USER_REFRESH_TOKEN).trim();
+  const expiresIn = Number(parsed?.expires_in || 0);
+  const expiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : '';
+
+  if (!accessToken) {
+    throw new Error('Token refresh succeeded but access_token is missing.');
+  }
+
+  TESLA_USER_ACCESS_TOKEN = accessToken;
+  TESLA_USER_REFRESH_TOKEN = nextRefreshToken;
+  TESLA_TOKEN_GRANT_TYPE = inferJwtGrantType(TESLA_USER_ACCESS_TOKEN);
+
+  upsertEnvFile(ROOT_ENV_PATH, {
+    TESLA_USER_ACCESS_TOKEN: accessToken,
+    TESLA_USER_REFRESH_TOKEN: nextRefreshToken,
+    TESLA_USER_TOKEN_EXPIRES_AT: expiresAt
+  });
+
+  return {
+    accessToken,
+    refreshToken: nextRefreshToken,
+    expiresAt
+  };
+}
+
+async function attemptTeslaMateAuthRepair(reason, { force = false } = {}) {
+  if (!TESLAMATE_AUTO_AUTH_REPAIR) {
+    return { ok: false, skipped: 'disabled', message: 'TESLAMATE_AUTO_AUTH_REPAIR=0' };
+  }
+
+  const now = Date.now();
+  const lastAttemptAtMs = runtime.authRepair.lastAttemptAt ? Date.parse(runtime.authRepair.lastAttemptAt) : 0;
+  if (!force && lastAttemptAtMs && now - lastAttemptAtMs < TESLAMATE_AUTH_REPAIR_COOLDOWN_MS) {
+    return {
+      ok: false,
+      skipped: 'cooldown',
+      waitMs: TESLAMATE_AUTH_REPAIR_COOLDOWN_MS - (now - lastAttemptAtMs),
+      message: 'Auth repair is cooling down.'
+    };
+  }
+
+  if (teslaMateAuthRepairInFlight) {
+    return teslaMateAuthRepairInFlight;
+  }
+
+  runtime.authRepair.inFlight = true;
+  runtime.authRepair.lastAttemptAt = new Date().toISOString();
+  runtime.authRepair.lastReason = String(reason || 'unknown');
+
+  teslaMateAuthRepairInFlight = (async () => {
+    try {
+      const refreshed = await refreshFleetUserToken();
+      const sync = syncTokensToTeslaMateRuntime({
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        containerName: TESLAMATE_CONTAINER_NAME
+      });
+
+      // TeslaMate may need a short delay before cars/status endpoints recover.
+      await wait(TESLAMATE_AUTH_REPAIR_SETTLE_MS);
+
+      runtime.authRepair.lastSuccessAt = new Date().toISOString();
+      runtime.authRepair.lastError = null;
+
+      return {
+        ok: true,
+        refreshedAt: runtime.authRepair.lastSuccessAt,
+        expiresAt: refreshed.expiresAt,
+        syncOutput: sync?.stdout || null
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      runtime.authRepair.lastError = message;
+      return {
+        ok: false,
+        message
+      };
+    } finally {
+      runtime.authRepair.inFlight = false;
+      teslaMateAuthRepairInFlight = null;
+    }
+  })();
+
+  return teslaMateAuthRepairInFlight;
+}
+
 async function fetchTeslaMateVehicleData() {
   if (!teslaMateClient) {
     throw new Error('TeslaMate mode is not enabled.');
   }
 
-  const result = await teslaMateClient.fetchLatestVehicle(state.vehicle);
-  runtime.resolvedTeslaMateCarId = result.carId || runtime.resolvedTeslaMateCarId;
-  applyPatch(result.vehicle, 'teslamate_poll');
-  return snapshotResponse();
+  try {
+    const result = await teslaMateClient.fetchLatestVehicle(state.vehicle);
+    runtime.resolvedTeslaMateCarId = result.carId || runtime.resolvedTeslaMateCarId;
+    applyPatch(result.vehicle, 'teslamate_poll');
+    return snapshotResponse();
+  } catch (error) {
+    if (!isLikelyTeslaMateAuthFailure(error)) {
+      throw error;
+    }
+
+    const repaired = await attemptTeslaMateAuthRepair(error instanceof Error ? error.message : 'unknown error');
+    if (!repaired.ok) {
+      if (repaired.skipped === 'cooldown') {
+        const seconds = Math.max(1, Math.ceil(Number(repaired.waitMs || 0) / 1000));
+        throw new Error(
+          `${error instanceof Error ? error.message : 'TeslaMate fetch failed.'} (auto-repair cooldown ${seconds}s)`
+        );
+      }
+      throw new Error(
+        `${error instanceof Error ? error.message : 'TeslaMate fetch failed.'} | auto-repair failed: ${
+          repaired.message || 'unknown'
+        }`
+      );
+    }
+
+    const retry = await teslaMateClient.fetchLatestVehicle(state.vehicle);
+    runtime.resolvedTeslaMateCarId = retry.carId || runtime.resolvedTeslaMateCarId;
+    applyPatch(retry.vehicle, 'teslamate_poll');
+    return snapshotResponse();
+  }
 }
 
 async function forwardTeslaCommand(command) {
@@ -515,10 +676,15 @@ async function route(req, res) {
       resolvedVin: runtime.resolvedVin || null,
       resolvedTeslaMateCarId: runtime.resolvedTeslaMateCarId || null,
       hasUserAccessToken: !!TESLA_USER_ACCESS_TOKEN,
+      hasUserRefreshToken: !!TESLA_USER_REFRESH_TOKEN,
       tokenGrantType: TESLA_TOKEN_GRANT_TYPE,
       hasTeslaMateBase: !!TESLAMATE_API_BASE,
       hasTeslaMateToken: !!TESLAMATE_API_TOKEN,
       teslaMateAuthHeader: TESLAMATE_AUTH_HEADER,
+      teslaMateAutoAuthRepair: TESLAMATE_AUTO_AUTH_REPAIR,
+      teslaMateAuthRepairCooldownMs: TESLAMATE_AUTH_REPAIR_COOLDOWN_MS,
+      teslaMateAuthRepairSettleMs: TESLAMATE_AUTH_REPAIR_SETTLE_MS,
+      teslaMateAuthRepairState: runtime.authRepair,
       source: state.source,
       updatedAt: state.updatedAt
     });
@@ -581,6 +747,40 @@ async function route(req, res) {
     } catch (error) {
       sendJson(res, 502, { ok: false, message: error instanceof Error ? error.message : 'TeslaMate status failed' });
     }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/teslamate/repair-auth') {
+    if (state.mode !== 'teslamate') {
+      sendJson(res, 400, { ok: false, message: 'Server is not in teslamate mode.' });
+      return;
+    }
+    let payload = {};
+    try {
+      payload = await readJson(req);
+    } catch {
+      payload = {};
+    }
+
+    const force = payload?.force !== false;
+    const reason = String(payload?.reason || 'manual').trim() || 'manual';
+    const repair = await attemptTeslaMateAuthRepair(`manual:${reason}`, { force });
+
+    if (repair.ok) {
+      try {
+        await fetchTeslaMateVehicleData();
+      } catch {
+        // Non-fatal: repair result is still meaningful for ops.
+      }
+    }
+
+    const statusCode = repair.ok || repair.skipped ? 200 : 502;
+    sendJson(res, statusCode, {
+      ok: repair.ok,
+      repair,
+      snapshot: snapshotResponse(),
+      authRepairState: runtime.authRepair
+    });
     return;
   }
 
@@ -690,6 +890,11 @@ server.listen(PORT, HOST, () => {
       `[tesla-subdash-backend] teslamateBase=${TESLAMATE_API_BASE || '(missing)'} token=${
         TESLAMATE_API_TOKEN ? 'set' : 'missing'
       } carId=${TESLAMATE_CAR_ID || '(auto)'}`
+    );
+    console.log(
+      `[tesla-subdash-backend] teslamateAutoAuthRepair=${
+        TESLAMATE_AUTO_AUTH_REPAIR ? 'on' : 'off'
+      } cooldownMs=${TESLAMATE_AUTH_REPAIR_COOLDOWN_MS} settleMs=${TESLAMATE_AUTH_REPAIR_SETTLE_MS}`
     );
   }
   if (TESLA_TOKEN_GRANT_TYPE) {

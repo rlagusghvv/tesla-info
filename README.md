@@ -182,12 +182,17 @@ If Fleet location is blocked (for example `DRIVER` access), use TeslaMate as a t
 Set env values in `.env`:
 
 ```bash
-TESLAMATE_API_BASE=https://<your-teslamate-api-base>
+TESLAMATE_API_BASE=http://127.0.0.1:8080
 TESLAMATE_API_TOKEN=<optional-token>
 TESLAMATE_CAR_ID=<optional-car-id>
 # Optional auth customization:
 # TESLAMATE_AUTH_HEADER=Authorization
 # TESLAMATE_TOKEN_QUERY_KEY=api_key
+# Optional auto auth-repair (recommended for long-running server):
+# TESLAMATE_CONTAINER_NAME=teslamate-stack-teslamate-1
+# TESLAMATE_AUTO_AUTH_REPAIR=1
+# TESLAMATE_AUTH_REPAIR_COOLDOWN_MS=180000
+# TESLAMATE_AUTH_REPAIR_SETTLE_MS=3000
 ```
 
 Run:
@@ -208,7 +213,13 @@ Quick checks:
 curl http://127.0.0.1:8787/health
 curl http://127.0.0.1:8787/api/teslamate/cars
 curl http://127.0.0.1:8787/api/vehicle/latest
+curl -X POST http://127.0.0.1:8787/api/teslamate/repair-auth
 ```
+
+If TeslaMate loses login/session, backend now tries an automatic repair flow:
+1. refresh Tesla user token (`fleet-auth`)
+2. sync refreshed tokens into TeslaMate runtime (`docker exec ... TeslaMate.Auth.save`)
+3. retry TeslaMate vehicle fetch
 
 ## 3) Connect iPad app to backend
 
@@ -246,6 +257,7 @@ curl http://127.0.0.1:8787/api/vehicle/latest
 - `GET /api/tesla/vehicles` (fleet token required)
 - `GET /api/teslamate/cars` (teslamate mode only)
 - `GET /api/teslamate/status` (teslamate mode only)
+- `POST /api/teslamate/repair-auth` (teslamate mode only)
 - `POST /api/vehicle/command` body: `{ "command": "door_lock" }`
 - `POST /api/telemetry/ingest` body: partial vehicle telemetry patch
 - `POST /api/tesla/poll-now` (fleet/teslamate mode)

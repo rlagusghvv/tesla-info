@@ -193,3 +193,28 @@ All future implementation and refactoring should conform to these rules.
 - Application/ops integration:
   - Added npm script `tesla:oauth:refresh:sync`.
   - README에 장기 운영용 주기 refresh 안내 추가.
+
+## Update 2026-02-12 (Backend Auto Auth-Repair for TeslaMate)
+
+- Self-review (before coding):
+  - SoC: TeslaMate fetch/command path는 유지하고, auth recovery는 backend orchestration helper로 분리.
+  - DIP: `teslamate_client`의 API contract는 변경하지 않고 server application layer에서 실패 복구를 조합.
+  - Multi-tenancy: 현재 단일 사용자 `.env` 기반 유지(추후 userId별 token vault 분리 필요).
+  - Resilience/Observability: 무인 운영 중 token 만료/세션 이탈을 자동 복구하고 health로 상태 노출.
+- Infrastructure update:
+  - `backend/server.mjs`
+    - `TESLAMATE_API_BASE` 기본값을 `http://127.0.0.1:8080`으로 설정.
+    - TeslaMate auth failure(401/403/no cars/not signed in/token 관련) 감지 시:
+      1) Fleet refresh token으로 access 갱신
+      2) `.env` 토큰 갱신 저장
+      3) TeslaMate runtime token sync (`TeslaMate.Auth.save`)
+      4) 짧은 settle 후 재시도
+    - cooldown/in-flight guard를 둬 과도한 재시도 방지.
+    - `runtime.authRepair` 상태를 `/health`에 노출.
+    - 수동 복구 endpoint 추가: `POST /api/teslamate/repair-auth`
+- Ops integration:
+  - `.env.example`에 auto-repair 관련 변수 추가:
+    - `TESLAMATE_CONTAINER_NAME`
+    - `TESLAMATE_AUTO_AUTH_REPAIR`
+    - `TESLAMATE_AUTH_REPAIR_COOLDOWN_MS`
+    - `TESLAMATE_AUTH_REPAIR_SETTLE_MS`

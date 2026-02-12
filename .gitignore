@@ -32,6 +32,7 @@ yarn-error.log*
 .env.*
 backend/.env
 backend/.env.*
+!backend/.env.example
 
 # Tesla key material (keep local only)
 backend/keys/
