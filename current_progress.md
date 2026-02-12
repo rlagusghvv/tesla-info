@@ -909,3 +909,28 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 ### [특이 사항]
 - 자동복구는 `.env`의 `TESLA_CLIENT_ID` + `TESLA_USER_REFRESH_TOKEN` + Docker/TeslaMate 컨테이너 접근 가능성이 전제임.
 - 근본적으로 TeslaMate upstream refresh endpoint 정합성 이슈가 남아 있으므로, 본 패치는 운영 안정화를 위한 방어층임.
+
+## 2026-02-12 (추가 업데이트 @운영 기본 Backend URL 전환)
+
+### [완료된 작업]
+- 사용자 요청에 따라 앱 기본 backend URL을 로컬에서 운영 도메인으로 변경.
+- 변경 파일:
+  - `Config/Info.plist`
+    - `BackendBaseURL`: `http://127.0.0.1:8787` -> `https://tesla.splui.com`
+  - `Sources/Features/Shared/AppConfig.swift`
+    - `defaultBackend`: `http://127.0.0.1:8787` -> `https://tesla.splui.com`
+  - `Sources/Features/Connection/ConnectionGuideView.swift`
+    - 빠른 후보 리스트 최상단에 `https://tesla.splui.com` 추가
+  - `README.md`
+    - 기본 backend URL 설명을 운영 도메인 기준으로 갱신
+
+### [현재 상태]
+- 신규 설치/초기 실행 시 앱은 기본적으로 `https://tesla.splui.com`를 backend로 사용.
+- 기존에 저장된 `backend_base_url_override` 값이 있는 기기에서는 기존 override 값이 우선 적용됨.
+
+### [다음 단계]
+- iPad 앱에서 Account -> Backend URL 값이 과거 로컬 주소로 저장되어 있다면 `https://tesla.splui.com`로 바꾼 뒤 `Save URL`.
+- 팀 공지 시 “내부 통신(TeslaMate API)은 `127.0.0.1:8080` 유지가 정상”임을 함께 안내.
+
+### [특이 사항]
+- 이번 변경은 앱의 기본 연결값/가이드 변경이며, 서버 비즈니스 로직에는 영향 없음.

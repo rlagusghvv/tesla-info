@@ -24,6 +24,7 @@ struct ConnectionGuideView: View {
     @State private var isDetectingBackend = false
 
     private let quickBackendCandidates: [String] = [
+        "https://tesla.splui.com",
         "http://192.168.0.30:8787",
         "http://172.20.10.5:8787",
         "http://172.20.10.3:8787",

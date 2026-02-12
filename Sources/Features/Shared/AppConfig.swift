@@ -1,7 +1,7 @@
 import Foundation
 
 enum AppConfig {
-    private static let defaultBackend = "http://127.0.0.1:8787"
+    private static let defaultBackend = "https://tesla.splui.com"
     private static let backendOverrideKey = "backend_base_url_override"
     private static let telemetrySourceKey = "telemetry_source"
     private static let backendTokenKey = "backend.api.token"
