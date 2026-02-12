@@ -10,6 +10,7 @@ struct KakaoNavigationPaneView: View {
     let vehicleLocation: VehicleLocation
     let vehicleSpeedKph: Double
     let locationSourceLabel: String?
+    let preferNativeMapRenderer: Bool
     let wakeVehicle: (() -> Void)?
     let sendDestinationToVehicle: ((KakaoPlace) async -> (ok: Bool, message: String))?
 
@@ -26,6 +27,7 @@ struct KakaoNavigationPaneView: View {
     @State private var suppressMapTapUntil: Date = .distantPast
 
     @State private var autoHideTask: Task<Void, Never>?
+    @State private var speedCameraRefreshTask: Task<Void, Never>?
     @State private var destinationPushStatus: (ok: Bool, message: String)?
     @StateObject private var speedCameraAlertEngine = SpeedCameraAlertEngine()
 
@@ -185,9 +187,7 @@ struct KakaoNavigationPaneView: View {
             startFollowPulseLoop()
             revealHUDAndScheduleAutoHide()
             speedCameraAlertEngine.reset()
-            Task {
-                await model.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: true)
-            }
+            scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.15)
             updateSpeedCameraAlerts()
         }
         .onDisappear {
@@ -195,13 +195,13 @@ struct KakaoNavigationPaneView: View {
             autoHideTask = nil
             followPulseTask?.cancel()
             followPulseTask = nil
+            speedCameraRefreshTask?.cancel()
+            speedCameraRefreshTask = nil
             speedCameraAlertEngine.reset()
         }
         .onChange(of: vehicleLocation) { _, _ in
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
-            Task {
-                await model.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey)
-            }
+            scheduleSpeedCameraPOIRefresh(force: false, delaySeconds: 0.8)
             updateSpeedCameraAlerts()
         }
         .onChange(of: vehicleSpeedKph) { _, _ in
@@ -209,9 +209,11 @@ struct KakaoNavigationPaneView: View {
             updateSpeedCameraAlerts()
         }
         .onChange(of: model.routeRevision) { _, _ in
-            Task {
-                await model.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: true)
-            }
+            scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.1)
+            updateSpeedCameraAlerts()
+        }
+        .onChange(of: kakaoConfig.restAPIKey) { _, _ in
+            scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.1)
             updateSpeedCameraAlerts()
         }
         .onChange(of: model.speedCameraRevision) { _, _ in
@@ -226,9 +228,10 @@ struct KakaoNavigationPaneView: View {
 
     private func mapCanvas(resultsTopPadding: CGFloat, topInset: CGFloat) -> some View {
         let jsKey = kakaoConfig.javaScriptKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let useNative = preferNativeMapRenderer
 
         return Group {
-            if !jsKey.isEmpty {
+            if !useNative, !jsKey.isEmpty {
                 KakaoWebRouteMapView(
                     javaScriptKey: jsKey,
                     vehicleCoordinate: model.vehicleCoordinate,
@@ -284,7 +287,7 @@ struct KakaoNavigationPaneView: View {
             .padding(10)
         }
         .overlay(alignment: .bottomLeading) {
-            Text(jsKey.isEmpty ? "Map: Apple fallback (set Kakao JS key in Account)" : "Map: Kakao")
+            Text(useNative ? "Map: Apple (stability mode)" : (jsKey.isEmpty ? "Map: Apple fallback (set Kakao JS key in Account)" : "Map: Kakao"))
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.75))
                 .padding(.horizontal, 10)
@@ -767,6 +770,18 @@ struct KakaoNavigationPaneView: View {
             distanceMeters: model.distanceToNextSpeedCameraMeters(),
             speedKph: vehicleSpeedKph
         )
+    }
+
+    private func scheduleSpeedCameraPOIRefresh(force: Bool, delaySeconds: Double) {
+        speedCameraRefreshTask?.cancel()
+        speedCameraRefreshTask = Task { @MainActor in
+            if delaySeconds > 0 {
+                let ns = UInt64(delaySeconds * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: ns)
+            }
+            if Task.isCancelled { return }
+            await model.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: force)
+        }
     }
 
     private func distanceDurationText(route: KakaoRoute) -> String {

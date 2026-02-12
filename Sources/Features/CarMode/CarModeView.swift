@@ -128,10 +128,11 @@ struct CarModeView: View {
     private let mediaToolbarHeight: CGFloat = 64
     private let mediaMinSize = CGSize(width: 330, height: 220)
     private let regularTopInset: CGFloat = 22
-    private let phoneLayoutMaxWidth: CGFloat = 470
+    private let phoneLayoutMaxWidth: CGFloat = 430
 
     private var usePhoneSizedLayout: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        // Product decision: run car mode UI in iPhone-size layout on all devices.
+        true
     }
 
     private var isFullscreenNaviActive: Bool {
@@ -238,53 +239,26 @@ struct CarModeView: View {
 
     private var content: some View {
         GeometryReader { proxy in
-            if usePhoneSizedLayout {
-                let sideHeight = min(350, max(220, proxy.size.height * 0.34))
+            let sideHeight = min(340, max(210, proxy.size.height * 0.33))
 
-                VStack(spacing: 10) {
-                    if showSetupSheet {
-                        suspendedCenterPanel
-                    } else {
-                        regularCenterPanel
-                    }
-
-                    Group {
-                        if showSetupSheet {
-                            suspendedSidePanel
-                        } else {
-                            sidePanel
-                        }
-                    }
-                    .frame(height: sideHeight)
+            VStack(spacing: 10) {
+                if showSetupSheet {
+                    suspendedCenterPanel
+                } else {
+                    regularCenterPanel
                 }
-                .frame(maxWidth: min(phoneLayoutMaxWidth, proxy.size.width))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            } else {
-                // Keep the center pane dominant (map/media), especially on iPad mini.
-                // All vehicle info + controls live in a single side bar.
-                let sideWidth = max(198, min(230, proxy.size.width * 0.24))
 
-                HStack(spacing: isFullscreenNaviActive ? 0 : 14) {
+                Group {
                     if showSetupSheet {
-                        suspendedCenterPanel
+                        suspendedSidePanel
                     } else {
-                        centerPanel
-                    }
-
-                    if !isFullscreenNaviActive {
-                        Group {
-                            if showSetupSheet {
-                                suspendedSidePanel
-                            } else {
-                                sidePanel
-                            }
-                        }
-                        .frame(width: sideWidth)
-
-                        Spacer(minLength: 0)
+                        sidePanel
                     }
                 }
+                .frame(height: sideHeight)
             }
+            .frame(maxWidth: min(phoneLayoutMaxWidth, proxy.size.width))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 
@@ -403,6 +377,7 @@ struct CarModeView: View {
             vehicleLocation: effectiveNaviLocation,
             vehicleSpeedKph: effectiveNaviSpeedKph,
             locationSourceLabel: effectiveLocationSourceLabel,
+            preferNativeMapRenderer: true,
             wakeVehicle: {
                 viewModel.sendCommand("wake_up")
                 Task {
