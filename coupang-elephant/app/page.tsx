@@ -120,12 +120,20 @@ export default function Home() {
             </p>
 
             <div className="mt-7 flex flex-wrap items-center gap-3">
-              <a
-                href="/analyze"
-                className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-6 py-3 text-sm font-bold text-white shadow-sm hover:bg-neutral-800"
-              >
-                빠르게 시작하기 →
-              </a>
+              <div className="flex flex-wrap items-center gap-3">
+                <a
+                  href="/analyze"
+                  className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-6 py-3 text-sm font-bold text-white shadow-sm hover:bg-neutral-800"
+                >
+                  빠르게 시작하기 →
+                </a>
+                <a
+                  href="/recommend"
+                  className="inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-bold text-neutral-800 hover:bg-black/5"
+                >
+                  추천/배치 업로드
+                </a>
+              </div>
               <button className="rounded-full px-6 py-3 text-sm font-bold text-neutral-800 hover:bg-black/5">
                 로그보기
               </button>
