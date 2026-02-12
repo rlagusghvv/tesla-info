@@ -60,9 +60,10 @@ actor TelemetryService {
 
         do {
             let envelope = try decoder.decode(BackendCommandEnvelope.self, from: data)
+            let backendMessage = composeCommandMessage(envelope)
             let message = envelope.ok
-                ? envelope.message
-                : mergeWithHealthWarning(envelope.message, healthWarning: healthWarning)
+                ? backendMessage
+                : mergeWithHealthWarning(backendMessage, healthWarning: healthWarning)
             return CommandResponse(
                 ok: envelope.ok,
                 message: message,
@@ -207,6 +208,26 @@ actor TelemetryService {
         }
         return "\(trimmed) | backend health: \(healthWarning)"
     }
+
+    private func composeCommandMessage(_ envelope: BackendCommandEnvelope) -> String {
+        var parts: [String] = []
+        let base = envelope.message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !base.isEmpty {
+            parts.append(base)
+        }
+        if let upstreamStatus = envelope.upstreamStatus {
+            parts.append("upstream HTTP \(upstreamStatus)")
+        }
+        if let routedVia = envelope.routedVia?.trimmingCharacters(in: .whitespacesAndNewlines), !routedVia.isEmpty {
+            parts.append("via \(routedVia)")
+        }
+        if let reason = envelope.details?.response?.reason?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !reason.isEmpty,
+           !base.localizedCaseInsensitiveContains(reason) {
+            parts.append(reason)
+        }
+        return parts.isEmpty ? "Command failed." : parts.joined(separator: " | ")
+    }
 }
 
 enum TelemetryError: LocalizedError {
@@ -236,5 +257,17 @@ private struct BackendHealthEnvelope: Decodable {
 private struct BackendCommandEnvelope: Decodable {
     let ok: Bool
     let message: String
+    let routedVia: String?
+    let upstreamStatus: Int?
+    let details: BackendCommandDetails?
     let snapshot: VehicleSnapshot?
+}
+
+private struct BackendCommandDetails: Decodable {
+    let response: BackendCommandResultBody?
+}
+
+private struct BackendCommandResultBody: Decodable {
+    let result: Bool?
+    let reason: String?
 }

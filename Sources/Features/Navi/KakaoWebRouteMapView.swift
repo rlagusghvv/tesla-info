@@ -9,6 +9,9 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
     let route: KakaoRoute?
     let followEnabled: Bool
     let routeRevision: Int
+    let zoomOffset: Int
+    let zoomRevision: Int
+    let followPulse: Int
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -38,7 +41,10 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
             speedKph: vehicleSpeedKph,
             polyline: route?.polyline ?? [],
             followEnabled: followEnabled,
-            routeRevision: routeRevision
+            routeRevision: routeRevision,
+            zoomOffset: zoomOffset,
+            zoomRevision: zoomRevision,
+            followPulse: followPulse
         )
     }
 
@@ -71,7 +77,10 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
             speedKph: Double,
             polyline: [CLLocationCoordinate2D],
             followEnabled: Bool,
-            routeRevision: Int
+            routeRevision: Int,
+            zoomOffset: Int,
+            zoomRevision: Int,
+            followPulse: Int
         ) {
             guard !loadedKey.isEmpty else { return }
 
@@ -80,7 +89,10 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                 "speedKph": speedKph,
                 "polyline": polyline.map { ["lat": $0.latitude, "lon": $0.longitude] },
                 "follow": followEnabled,
-                "routeRevision": routeRevision
+                "routeRevision": routeRevision,
+                "zoomOffset": zoomOffset,
+                "zoomRevision": zoomRevision,
+                "followPulse": followPulse
             ]
 
             let signature = payloadSignature(
@@ -88,7 +100,10 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                 speedKph: speedKph,
                 polyline: polyline,
                 followEnabled: followEnabled,
-                routeRevision: routeRevision
+                routeRevision: routeRevision,
+                zoomOffset: zoomOffset,
+                zoomRevision: zoomRevision,
+                followPulse: followPulse
             )
             guard signature != lastPayloadSignature else { return }
 
@@ -124,12 +139,18 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
 
             let follow = payload["follow"] as? Bool ?? true
             let routeRevision = payload["routeRevision"] as? Int ?? 0
+            let zoomOffset = payload["zoomOffset"] as? Int ?? 0
+            let zoomRevision = payload["zoomRevision"] as? Int ?? 0
+            let followPulse = payload["followPulse"] as? Int ?? 0
             let signature = payloadSignature(
                 vehicleCoordinate: vehicle,
                 speedKph: speedKph,
                 polyline: polyline,
                 followEnabled: follow,
-                routeRevision: routeRevision
+                routeRevision: routeRevision,
+                zoomOffset: zoomOffset,
+                zoomRevision: zoomRevision,
+                followPulse: followPulse
             )
             push(payload: payload, signature: signature, to: webView)
         }
@@ -154,7 +175,10 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
             speedKph: Double,
             polyline: [CLLocationCoordinate2D],
             followEnabled: Bool,
-            routeRevision: Int
+            routeRevision: Int,
+            zoomOffset: Int,
+            zoomRevision: Int,
+            followPulse: Int
         ) -> String {
             let vLat = vehicleCoordinate.map { String(format: "%.5f", $0.latitude) } ?? "nil"
             let vLon = vehicleCoordinate.map { String(format: "%.5f", $0.longitude) } ?? "nil"
@@ -168,7 +192,7 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
             let lastSig = pointSignature(last)
             let speedSig = String(format: "%.1f", speedKph)
 
-            return "\(vLat),\(vLon)|\(speedSig)|\(polyline.count)|\(firstSig)|\(middleSig)|\(lastSig)|f=\(followEnabled)|r=\(routeRevision)"
+            return "\(vLat),\(vLon)|\(speedSig)|\(polyline.count)|\(firstSig)|\(middleSig)|\(lastSig)|f=\(followEnabled)|r=\(routeRevision)|z=\(zoomOffset)|zr=\(zoomRevision)|p=\(followPulse)"
         }
 
         private func pointSignature(_ point: CLLocationCoordinate2D?) -> String {
@@ -215,6 +239,7 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                   carMarker: null,
                   routeLine: null,
                   lastVehicle: null,
+                  lastFollowPulse: -1,
                   fittedRouteRevision: -1,
                   lastRouteSig: ''
                 };
@@ -223,6 +248,8 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                 const CRUISE_LEVEL = 4;
                 const IDLE_LEVEL = 6;
                 const RECENTER_METERS = 6;
+                const MIN_LEVEL = 1;
+                const MAX_LEVEL = 9;
 
                 function isValidPoint(p) {
                   return Number.isFinite(p?.lat)
@@ -290,6 +317,8 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                   const speedKph = Number.isFinite(payload?.speedKph) ? payload.speedKph : 0;
                   const follow = payload?.follow !== false;
                   const routeRevision = Number.isFinite(payload?.routeRevision) ? payload.routeRevision : 0;
+                  const zoomOffset = Number.isFinite(payload?.zoomOffset) ? payload.zoomOffset : 0;
+                  const followPulse = Number.isFinite(payload?.followPulse) ? payload.followPulse : 0;
                   const hasRoute = points.length > 1;
 
                   const sig = routeSignature(points);
@@ -341,12 +370,14 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
 
                   if (follow && vehicle) {
                     const target = toLatLng(vehicle);
-                    const level = hasRoute ? NAV_LEVEL : CRUISE_LEVEL;
+                    const baseLevel = hasRoute ? NAV_LEVEL : CRUISE_LEVEL;
+                    const level = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, baseLevel + zoomOffset));
+                    const pulseChanged = followPulse !== mapState.lastFollowPulse;
                     if (mapState.map.getLevel() !== level) {
                       mapState.map.setLevel(level, { animate: { duration: 220 } });
                     }
 
-                    if (!mapState.lastVehicle) {
+                    if (!mapState.lastVehicle || pulseChanged) {
                       mapState.map.setCenter(target);
                     } else {
                       const moved = distanceMeters(mapState.lastVehicle, vehicle);
@@ -356,8 +387,10 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                       }
                     }
                     mapState.lastVehicle = { lat: vehicle.lat, lon: vehicle.lon };
+                    mapState.lastFollowPulse = followPulse;
                   } else if (!vehicle) {
                     mapState.lastVehicle = null;
+                    mapState.lastFollowPulse = -1;
                   }
 
                   const mode = follow ? 'FOLLOW' : 'FREE';

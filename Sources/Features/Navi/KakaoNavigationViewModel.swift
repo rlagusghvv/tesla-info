@@ -3,6 +3,31 @@ import Foundation
 
 @MainActor
 final class KakaoNavigationViewModel: ObservableObject {
+    enum FavoriteSlot: String {
+        case home
+        case work
+
+        var title: String {
+            switch self {
+            case .home:
+                return "집"
+            case .work:
+                return "직장"
+            }
+        }
+    }
+
+    struct SavedDestination: Codable {
+        let name: String
+        let address: String
+        let lat: Double
+        let lon: Double
+
+        var coordinate: CLLocationCoordinate2D {
+            CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+    }
+
     @Published var query: String = ""
     @Published private(set) var results: [KakaoPlace] = []
     @Published private(set) var route: KakaoRoute?
@@ -14,9 +39,21 @@ final class KakaoNavigationViewModel: ObservableObject {
     @Published private(set) var vehicleCoordinate: CLLocationCoordinate2D?
     @Published private(set) var vehicleSpeedKph: Double = 0
     @Published private(set) var routeRevision: Int = 0
+    @Published private(set) var followPulse: Int = 0
+    @Published private(set) var zoomOffset: Int = 0
+    @Published private(set) var zoomRevision: Int = 0
+    @Published private(set) var homeDestination: SavedDestination?
+    @Published private(set) var workDestination: SavedDestination?
+
+    private static let favoriteHomeKey = "kakao.favorite.home"
+    private static let favoriteWorkKey = "kakao.favorite.work"
 
     private var cachedKey: String = ""
     private var cachedClient: KakaoAPIClient?
+
+    init() {
+        loadFavorites()
+    }
 
     func updateVehicle(location: VehicleLocation, speedKph: Double) {
         let nextCoordinate = location.isValid ? location.coordinate : nil
@@ -32,6 +69,53 @@ final class KakaoNavigationViewModel: ObservableObject {
         route = nil
         routeRevision += 1
         errorMessage = nil
+    }
+
+    func saveFavorite(_ slot: FavoriteSlot, place: KakaoPlace) {
+        let saved = SavedDestination(
+            name: place.name,
+            address: place.address,
+            lat: place.coordinate.latitude,
+            lon: place.coordinate.longitude
+        )
+        assignFavorite(slot, destination: saved)
+        persistFavorite(slot, destination: saved)
+    }
+
+    func clearFavorite(_ slot: FavoriteSlot) {
+        assignFavorite(slot, destination: nil)
+        persistFavorite(slot, destination: nil)
+    }
+
+    func favorite(for slot: FavoriteSlot) -> SavedDestination? {
+        switch slot {
+        case .home:
+            return homeDestination
+        case .work:
+            return workDestination
+        }
+    }
+
+    func zoomIn() {
+        zoomOffset = max(-3, zoomOffset - 1)
+        zoomRevision += 1
+        followPulse += 1
+    }
+
+    func zoomOut() {
+        zoomOffset = min(4, zoomOffset + 1)
+        zoomRevision += 1
+        followPulse += 1
+    }
+
+    func resetZoom() {
+        zoomOffset = 0
+        zoomRevision += 1
+        followPulse += 1
+    }
+
+    func bumpFollowPulse() {
+        followPulse += 1
     }
 
     func searchPlaces(restAPIKey: String, near: CLLocationCoordinate2D?) async {
@@ -64,6 +148,7 @@ final class KakaoNavigationViewModel: ObservableObject {
             route = r
             routeRevision += 1
             isFollowModeEnabled = true
+            followPulse += 1
         } catch {
             route = nil
             errorMessage = error.localizedDescription
@@ -185,6 +270,44 @@ final class KakaoNavigationViewModel: ObservableObject {
         case let (.some(a), .some(b)):
             let delta = abs(a.latitude - b.latitude) + abs(a.longitude - b.longitude)
             return delta >= 0.00002
+        }
+    }
+
+    private func loadFavorites() {
+        homeDestination = decodeFavorite(for: .home)
+        workDestination = decodeFavorite(for: .work)
+    }
+
+    private func assignFavorite(_ slot: FavoriteSlot, destination: SavedDestination?) {
+        switch slot {
+        case .home:
+            homeDestination = destination
+        case .work:
+            workDestination = destination
+        }
+    }
+
+    private func persistFavorite(_ slot: FavoriteSlot, destination: SavedDestination?) {
+        let key = favoriteKey(for: slot)
+        if let destination, let data = try? JSONEncoder().encode(destination) {
+            UserDefaults.standard.set(data, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    private func decodeFavorite(for slot: FavoriteSlot) -> SavedDestination? {
+        let key = favoriteKey(for: slot)
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(SavedDestination.self, from: data)
+    }
+
+    private func favoriteKey(for slot: FavoriteSlot) -> String {
+        switch slot {
+        case .home:
+            return Self.favoriteHomeKey
+        case .work:
+            return Self.favoriteWorkKey
         }
     }
 }

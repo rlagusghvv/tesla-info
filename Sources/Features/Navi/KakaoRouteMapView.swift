@@ -6,6 +6,9 @@ struct KakaoRouteMapView: View {
     let route: KakaoRoute?
     let followEnabled: Bool
     let routeRevision: Int
+    let zoomOffset: Int
+    let zoomRevision: Int
+    let followPulse: Int
 
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var lastFocusedVehicle: CLLocationCoordinate2D?
@@ -43,6 +46,13 @@ struct KakaoRouteMapView: View {
         .onChange(of: routeRevision) { _, _ in
             focusIfNeeded(force: true)
         }
+        .onChange(of: zoomRevision) { _, _ in
+            focusIfNeeded(force: true)
+        }
+        .onChange(of: followPulse) { _, _ in
+            guard followEnabled else { return }
+            focusIfNeeded(force: true)
+        }
         .onChange(of: followEnabled) { _, enabled in
             if enabled {
                 focusIfNeeded(force: true)
@@ -62,7 +72,10 @@ struct KakaoRouteMapView: View {
 
             let region = MKCoordinateRegion(
                 center: vehicleCoordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.0048, longitudeDelta: 0.0048)
+                span: MKCoordinateSpan(
+                    latitudeDelta: clampedDelta(0.0048 * zoomMultiplier()),
+                    longitudeDelta: clampedDelta(0.0048 * zoomMultiplier())
+                )
             )
             withAnimation(.easeInOut(duration: 0.35)) {
                 cameraPosition = .region(region)
@@ -90,7 +103,10 @@ struct KakaoRouteMapView: View {
 
         let region = MKCoordinateRegion(
             center: vehicleCoordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.0075, longitudeDelta: 0.0075)
+            span: MKCoordinateSpan(
+                latitudeDelta: clampedDelta(0.0075 * zoomMultiplier()),
+                longitudeDelta: clampedDelta(0.0075 * zoomMultiplier())
+            )
         )
         withAnimation(.easeInOut(duration: 0.35)) {
             cameraPosition = .region(region)
@@ -117,12 +133,20 @@ struct KakaoRouteMapView: View {
             longitude: (minLon + maxLon) / 2.0
         )
 
-        let latDelta = max(0.01, (maxLat - minLat) * 1.35)
-        let lonDelta = max(0.01, (maxLon - minLon) * 1.35)
+        let latDelta = clampedDelta(max(0.01, (maxLat - minLat) * 1.35) * zoomMultiplier())
+        let lonDelta = clampedDelta(max(0.01, (maxLon - minLon) * 1.35) * zoomMultiplier())
 
         return MKCoordinateRegion(
             center: center,
             span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
         )
+    }
+
+    private func zoomMultiplier() -> CLLocationDegrees {
+        pow(1.35, Double(zoomOffset))
+    }
+
+    private func clampedDelta(_ raw: CLLocationDegrees) -> CLLocationDegrees {
+        min(0.08, max(0.0016, raw))
     }
 }

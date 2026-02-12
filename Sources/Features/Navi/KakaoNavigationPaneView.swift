@@ -18,36 +18,47 @@ struct KakaoNavigationPaneView: View {
     @State private var topPanelAnchorOffset: CGSize = .zero
     @State private var turnBannerOffset: CGSize = .zero
     @State private var turnBannerAnchorOffset: CGSize = .zero
+    @State private var followPulseTask: Task<Void, Never>?
+    @State private var didRestorePersistedOffsets = false
+    @State private var suppressMapTapUntil: Date = .distantPast
 
     @State private var autoHideTask: Task<Void, Never>?
 
     private let autoHideSeconds: Double = 14
+    private let topPanelXKey = "kakao.navi.topPanel.offset.x"
+    private let topPanelYKey = "kakao.navi.topPanel.offset.y"
+    private let bannerXKey = "kakao.navi.banner.offset.x"
+    private let bannerYKey = "kakao.navi.banner.offset.y"
 
     var body: some View {
         GeometryReader { proxy in
             let panelWidth = min(proxy.size.width * 0.64, 560)
             let topInset = max(24.0, proxy.safeAreaInsets.top + 16)
+            let bottomInset = max(16.0, proxy.safeAreaInsets.bottom + 12)
             let resultsTopPadding = topInset + topPanelEstimatedHeight + topPanelOffset.height + 10
-            let turnBannerWidth = max(180.0, min(proxy.size.width - 188, 560))
+            let turnBannerWidth = max(260.0, min(proxy.size.width - 132, 760))
 
             ZStack(alignment: .topLeading) {
                 mapCanvas(resultsTopPadding: resultsTopPadding, topInset: topInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .onTapGesture {
+                        searchFocused = false
+                        if Date() < suppressMapTapUntil { return }
                         revealHUDAndScheduleAutoHide()
                     }
 
                 // Minimal turn-by-turn banner (keeps navigation feeling alive even when HUD is hidden)
-                if let next = model.nextGuide, model.route != nil {
-                    turnByTurnBanner(next: next)
+                if model.route != nil {
+                    turnByTurnBanner(next: model.nextGuide)
                         .frame(maxWidth: turnBannerWidth, alignment: .leading)
-                        .padding(.top, topInset + 2 + turnBannerOffset.height)
+                        .padding(.top, topInset + 20 + turnBannerOffset.height)
                         .padding(.leading, 64 + turnBannerOffset.width)
-                        .padding(.trailing, 110)
+                        .padding(.trailing, 24)
                         .gesture(
                             DragGesture(minimumDistance: 2, coordinateSpace: .local)
                                 .onChanged { value in
+                                    searchFocused = false
                                     turnBannerOffset = clampedTurnBannerOffset(
                                         proposalX: turnBannerAnchorOffset.width + value.translation.width,
                                         proposalY: turnBannerAnchorOffset.height + value.translation.height,
@@ -58,6 +69,7 @@ struct KakaoNavigationPaneView: View {
                                 }
                                 .onEnded { _ in
                                     turnBannerAnchorOffset = turnBannerOffset
+                                    persistPanelOffsets()
                                 }
                         )
                         .transition(.opacity)
@@ -71,6 +83,7 @@ struct KakaoNavigationPaneView: View {
                             missingKeyCard
                         } else {
                             searchBar
+                            favoriteDestinationsRow
                         }
 
                         routeInfo
@@ -91,11 +104,12 @@ struct KakaoNavigationPaneView: View {
                         y: topInset + topPanelOffset.height
                     )
                     .gesture(
-                        DragGesture(minimumDistance: 2, coordinateSpace: .local)
-                            .onChanged { value in
-                                topPanelOffset = clampedTopPanelOffset(
-                                    proposalX: topPanelAnchorOffset.width + value.translation.width,
-                                    proposalY: topPanelAnchorOffset.height + value.translation.height,
+                            DragGesture(minimumDistance: 2, coordinateSpace: .local)
+                                .onChanged { value in
+                                    searchFocused = false
+                                    topPanelOffset = clampedTopPanelOffset(
+                                        proposalX: topPanelAnchorOffset.width + value.translation.width,
+                                        proposalY: topPanelAnchorOffset.height + value.translation.height,
                                     containerSize: proxy.size,
                                     panelWidth: panelWidth,
                                     topInset: topInset
@@ -103,6 +117,7 @@ struct KakaoNavigationPaneView: View {
                             }
                             .onEnded { _ in
                                 topPanelAnchorOffset = topPanelOffset
+                                persistPanelOffsets()
                             }
                     )
                     .transition(.opacity)
@@ -114,6 +129,7 @@ struct KakaoNavigationPaneView: View {
                         searchFocused = false
                         autoHideTask?.cancel()
                         autoHideTask = nil
+                        suppressMapTapUntil = Date().addingTimeInterval(0.25)
                         withAnimation(.easeInOut(duration: 0.18)) {
                             hudVisible = false
                         }
@@ -132,30 +148,54 @@ struct KakaoNavigationPaneView: View {
                         .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .padding(.top, topInset + 6)
-                .padding(.leading, 10)
+                .padding(.bottom, bottomInset)
+                .padding(.leading, 12)
                 .opacity(hudVisible ? 0.55 : 1.0)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             }
             .animation(.easeInOut(duration: 0.18), value: hudVisible)
+            .onAppear {
+                restoreOffsetsIfNeeded(
+                    containerSize: proxy.size,
+                    panelWidth: panelWidth,
+                    topInset: topInset,
+                    bannerWidth: turnBannerWidth
+                )
+            }
+            .onChange(of: proxy.size) { _, size in
+                clampPersistedOffsets(
+                    containerSize: size,
+                    panelWidth: panelWidth,
+                    topInset: topInset,
+                    bannerWidth: turnBannerWidth
+                )
+            }
         }
         .onAppear {
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
             searchFocused = false
-            topPanelOffset = .zero
-            topPanelAnchorOffset = .zero
-            turnBannerOffset = .zero
-            turnBannerAnchorOffset = .zero
+            DispatchQueue.main.async {
+                searchFocused = false
+            }
+            startFollowPulseLoop()
             revealHUDAndScheduleAutoHide()
         }
         .onDisappear {
             autoHideTask?.cancel()
             autoHideTask = nil
+            followPulseTask?.cancel()
+            followPulseTask = nil
         }
         .onChange(of: vehicleLocation) { _, _ in
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
         }
         .onChange(of: vehicleSpeedKph) { _, _ in
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
+        }
+        .onChange(of: hudVisible) { _, visible in
+            if !visible {
+                searchFocused = false
+            }
         }
     }
 
@@ -170,14 +210,20 @@ struct KakaoNavigationPaneView: View {
                     vehicleSpeedKph: vehicleSpeedKph,
                     route: model.route,
                     followEnabled: model.isFollowModeEnabled,
-                    routeRevision: model.routeRevision
+                    routeRevision: model.routeRevision,
+                    zoomOffset: model.zoomOffset,
+                    zoomRevision: model.zoomRevision,
+                    followPulse: model.followPulse
                 )
             } else {
                 KakaoRouteMapView(
                     vehicleCoordinate: model.vehicleCoordinate,
                     route: model.route,
                     followEnabled: model.isFollowModeEnabled,
-                    routeRevision: model.routeRevision
+                    routeRevision: model.routeRevision,
+                    zoomOffset: model.zoomOffset,
+                    zoomRevision: model.zoomRevision,
+                    followPulse: model.followPulse
                 )
             }
         }
@@ -189,9 +235,12 @@ struct KakaoNavigationPaneView: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            followPill
-                .padding(.top, topInset + 8)
-                .padding(.trailing, 12)
+            VStack(alignment: .trailing, spacing: 8) {
+                followPill
+                zoomControls
+            }
+            .padding(.top, topInset + 8)
+            .padding(.trailing, 12)
         }
         .overlay(alignment: .bottomTrailing) {
             HStack(spacing: 6) {
@@ -279,6 +328,9 @@ struct KakaoNavigationPaneView: View {
     private var followPill: some View {
         Button {
             model.isFollowModeEnabled.toggle()
+            if model.isFollowModeEnabled {
+                model.bumpFollowPulse()
+            }
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: model.isFollowModeEnabled ? "location.fill" : "location.slash")
@@ -299,6 +351,49 @@ struct KakaoNavigationPaneView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private var zoomControls: some View {
+        HStack(spacing: 8) {
+            Button {
+                model.zoomOut()
+            } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Color.black.opacity(0.55)))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                model.zoomIn()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Color.black.opacity(0.55)))
+            }
+            .buttonStyle(.plain)
+
+            Button("1x") {
+                model.resetZoom()
+            }
+            .font(.system(size: 11, weight: .heavy, design: .rounded))
+            .foregroundStyle(.white.opacity(0.95))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.black.opacity(0.52))
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+            )
+            .buttonStyle(.plain)
+        }
     }
 
     private var missingKeyCard: some View {
@@ -373,6 +468,44 @@ struct KakaoNavigationPaneView: View {
         .background(panelBackground(opacity: 0.50))
     }
 
+    private var favoriteDestinationsRow: some View {
+        HStack(spacing: 8) {
+            favoriteSlotButton(slot: .home)
+            favoriteSlotButton(slot: .work)
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(panelBackground(opacity: 0.50))
+    }
+
+    private func favoriteSlotButton(slot: KakaoNavigationViewModel.FavoriteSlot) -> some View {
+        let destination = model.favorite(for: slot)
+        return Button {
+            Task { await routeToFavorite(slot) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: slot == .home ? "house.fill" : "briefcase.fill")
+                    .font(.system(size: 12, weight: .bold))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(slot.title)
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                    Text(destination?.name ?? "미설정")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(.white.opacity(destination == nil ? 0.72 : 0.95))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(destination == nil ? 0.08 : 0.16))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(destination == nil || model.isRouting)
+    }
+
     private var routeInfo: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let message = model.errorMessage {
@@ -381,42 +514,18 @@ struct KakaoNavigationPaneView: View {
                     .foregroundStyle(.red.opacity(0.95))
             }
 
-            HStack(spacing: 10) {
-                Text("속도 \(Int(vehicleSpeedKph.rounded())) km/h")
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.92))
-
-                if let r = model.route {
-                    Text(distanceDurationText(route: r))
+            if model.route == nil {
+                HStack(spacing: 10) {
+                    Text("속도 \(Int(vehicleSpeedKph.rounded())) km/h")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(1)
-                } else {
+                        .foregroundStyle(.white.opacity(0.92))
                     Text("경로 없음")
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.65))
                 }
             }
 
-            if let next = model.nextGuide {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(next.guidance)
-                            .font(.system(size: 18, weight: .heavy, design: .rounded))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Spacer()
-                        if let meters = model.distanceToNextGuideMeters() {
-                            Text("\(meters)m")
-                                .font(.system(size: 18, weight: .heavy, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.9))
-                        }
-                    }
-                    Text("다음 안내")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.65))
-                }
-            } else if model.vehicleCoordinate == nil, let wakeVehicle {
+            if model.vehicleCoordinate == nil, let wakeVehicle {
                 Button {
                     revealHUDAndScheduleAutoHide(extend: true)
                     wakeVehicle()
@@ -461,6 +570,24 @@ struct KakaoNavigationPaneView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("집으로 저장") {
+                                model.saveFavorite(.home, place: place)
+                            }
+                            Button("직장으로 저장") {
+                                model.saveFavorite(.work, place: place)
+                            }
+                            if model.favorite(for: .home) != nil {
+                                Button("집 저장 해제", role: .destructive) {
+                                    model.clearFavorite(.home)
+                                }
+                            }
+                            if model.favorite(for: .work) != nil {
+                                Button("직장 저장 해제", role: .destructive) {
+                                    model.clearFavorite(.work)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -514,6 +641,24 @@ struct KakaoNavigationPaneView: View {
         searchFocused = false
     }
 
+    private func routeToFavorite(_ slot: KakaoNavigationViewModel.FavoriteSlot) async {
+        revealHUDAndScheduleAutoHide(extend: true)
+        guard networkMonitor.isConnected else {
+            model.errorMessage = "Offline. Connect to your iPhone hotspot and try again."
+            return
+        }
+        guard let origin = model.vehicleCoordinate else {
+            model.errorMessage = "Waiting for vehicle location (origin)."
+            return
+        }
+        guard let destination = model.favorite(for: slot) else {
+            model.errorMessage = "\(slot.title) 목적지가 아직 저장되지 않았습니다."
+            return
+        }
+        let key = kakaoConfig.restAPIKey
+        await model.startRoute(restAPIKey: key, origin: origin, destination: destination.coordinate)
+    }
+
     private func distanceDurationText(route: KakaoRoute) -> String {
         let km = route.distanceMeters.map { Double($0) / 1000.0 }
         let min = route.durationSeconds.map { Double($0) / 60.0 }
@@ -529,33 +674,58 @@ struct KakaoNavigationPaneView: View {
         }
     }
 
-    private func turnByTurnBanner(next: KakaoGuide) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(next.guidance)
-                    .font(.system(size: 16, weight: .heavy, design: .rounded))
+    private func turnByTurnBanner(next: KakaoGuide?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(Int(max(0, vehicleSpeedKph.rounded())))")
+                    .font(.system(size: 46, weight: .black, design: .rounded))
+                    .monospacedDigit()
                     .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text("다음 안내")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.7))
+
+                Text("km/h")
+                    .font(.system(size: 22, weight: .black, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+
+                if let route = model.route {
+                    Text(distanceDurationText(route: route))
+                        .font(.system(size: 24, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(1)
+                        .padding(.leading, 6)
+                }
+
+                Spacer(minLength: 10)
             }
 
-            Spacer(minLength: 10)
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                    Text(next?.guidance ?? "안내 계산중")
+                        .font(.system(size: 44, weight: .heavy, design: .rounded))
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
+                    Text("다음 안내")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+                .foregroundStyle(.white)
 
-            if let meters = model.distanceToNextGuideMeters() {
-                Text("\(meters)m")
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.95))
+                Spacer(minLength: 10)
+
+                if let meters = model.distanceToNextGuideMeters() {
+                    Text("\(meters)m")
+                        .font(.system(size: 50, weight: .black, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.96))
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(
-            Capsule(style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color.black.opacity(0.55))
                 .overlay(
-                    Capsule(style: .continuous)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .stroke(Color.white.opacity(0.12), lineWidth: 1)
                 )
         )
@@ -587,12 +757,93 @@ struct KakaoNavigationPaneView: View {
         bannerWidth: CGFloat
     ) -> CGSize {
         let leadingBase: CGFloat = 64
-        let trailingReserve: CGFloat = 110
+        let trailingReserve: CGFloat = 132
         let maxX = max(0, containerSize.width - leadingBase - trailingReserve - bannerWidth)
         let maxY = max(0, containerSize.height - baseTopInset - 90)
         let x = min(max(0, proposalX), maxX)
         let y = min(max(0, proposalY), maxY)
         return CGSize(width: x, height: y)
+    }
+
+    private func startFollowPulseLoop() {
+        followPulseTask?.cancel()
+        followPulseTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                if Task.isCancelled { return }
+                if model.isFollowModeEnabled, model.vehicleCoordinate != nil {
+                    model.bumpFollowPulse()
+                }
+            }
+        }
+    }
+
+    private func persistPanelOffsets() {
+        let defaults = UserDefaults.standard
+        defaults.set(topPanelOffset.width, forKey: topPanelXKey)
+        defaults.set(topPanelOffset.height, forKey: topPanelYKey)
+        defaults.set(turnBannerOffset.width, forKey: bannerXKey)
+        defaults.set(turnBannerOffset.height, forKey: bannerYKey)
+    }
+
+    private func restoreOffsetsIfNeeded(
+        containerSize: CGSize,
+        panelWidth: CGFloat,
+        topInset: CGFloat,
+        bannerWidth: CGFloat
+    ) {
+        guard !didRestorePersistedOffsets else { return }
+        didRestorePersistedOffsets = true
+
+        let defaults = UserDefaults.standard
+        let topX = CGFloat(defaults.double(forKey: topPanelXKey))
+        let topY = CGFloat(defaults.double(forKey: topPanelYKey))
+        let bannerX = CGFloat(defaults.double(forKey: bannerXKey))
+        let bannerY = CGFloat(defaults.double(forKey: bannerYKey))
+
+        topPanelOffset = clampedTopPanelOffset(
+            proposalX: topX,
+            proposalY: topY,
+            containerSize: containerSize,
+            panelWidth: panelWidth,
+            topInset: topInset
+        )
+        topPanelAnchorOffset = topPanelOffset
+
+        turnBannerOffset = clampedTurnBannerOffset(
+            proposalX: bannerX,
+            proposalY: bannerY,
+            containerSize: containerSize,
+            baseTopInset: topInset,
+            bannerWidth: bannerWidth
+        )
+        turnBannerAnchorOffset = turnBannerOffset
+    }
+
+    private func clampPersistedOffsets(
+        containerSize: CGSize,
+        panelWidth: CGFloat,
+        topInset: CGFloat,
+        bannerWidth: CGFloat
+    ) {
+        topPanelOffset = clampedTopPanelOffset(
+            proposalX: topPanelOffset.width,
+            proposalY: topPanelOffset.height,
+            containerSize: containerSize,
+            panelWidth: panelWidth,
+            topInset: topInset
+        )
+        topPanelAnchorOffset = topPanelOffset
+
+        turnBannerOffset = clampedTurnBannerOffset(
+            proposalX: turnBannerOffset.width,
+            proposalY: turnBannerOffset.height,
+            containerSize: containerSize,
+            baseTopInset: topInset,
+            bannerWidth: bannerWidth
+        )
+        turnBannerAnchorOffset = turnBannerOffset
+        persistPanelOffsets()
     }
 }
 

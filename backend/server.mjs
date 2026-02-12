@@ -1001,10 +1001,13 @@ async function route(req, res) {
         at: new Date().toISOString()
       };
 
-      sendJson(res, result.ok ? 200 : 502, {
+      // Return 200 with ok=false for command-level failures so clients can surface
+      // the real Fleet/TeslaMate reason without collapsing everything into HTTP 502.
+      sendJson(res, 200, {
         ok: result.ok,
         message: result.message,
         routedVia: result._routedVia || null,
+        upstreamStatus: result.status || null,
         details: result.body || null,
         snapshot: snapshotResponse()
       });
