@@ -31,6 +31,7 @@ export default function RecommendPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [batchResult, setBatchResult] = useState<any>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
 
   const selectedIds = useMemo(
     () => Object.entries(selected).filter(([, v]) => v).map(([k]) => k),
@@ -68,6 +69,7 @@ export default function RecommendPage() {
   async function uploadBatch() {
     setError(null);
     setBatchResult(null);
+    setJobId(null);
 
     if (selectedIds.length === 0) {
       setError("업로드할 상품을 선택해 주세요.");
@@ -88,8 +90,32 @@ export default function RecommendPage() {
       const json = await res.json();
       if (!res.ok) {
         setError(json?.message ?? "배치 업로드 실패");
+        setBatchResult(json);
+        return;
       }
-      setBatchResult(json);
+
+      const nextJobId = json?.jobId as string | undefined;
+      if (!nextJobId) {
+        setError("jobId가 없습니다.");
+        setBatchResult(json);
+        return;
+      }
+
+      setJobId(nextJobId);
+
+      // Poll job status until done.
+      for (let i = 0; i < 60; i++) {
+        const r = await fetch(`/api/upload/batch?jobId=${encodeURIComponent(nextJobId)}`);
+        const j = await r.json();
+        if (!r.ok || j?.ok === false) {
+          setError(j?.message ?? "상태 조회 실패");
+          setBatchResult(j);
+          break;
+        }
+        setBatchResult(j);
+        if (j?.job?.status === "done") break;
+        await new Promise((rr) => setTimeout(rr, 400));
+      }
     } catch (e: any) {
       setError(e?.message ?? "배치 업로드 실패");
     } finally {
@@ -224,25 +250,53 @@ export default function RecommendPage() {
 
             {batchResult && (
               <div className="mt-8 rounded-3xl border border-black/10 bg-neutral-50 p-6">
-                <div className="text-sm font-black">배치 업로드 결과</div>
-                <div className="mt-2 text-sm text-neutral-700">
-                  총 {batchResult?.summary?.total}개 · 성공 {batchResult?.summary?.ok}개 · 실패 {batchResult?.summary?.failed}개
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-black">배치 업로드 결과</div>
+                  {jobId && (
+                    <div className="text-[11px] font-bold text-neutral-500">jobId: {jobId}</div>
+                  )}
                 </div>
-                <div className="mt-4 grid gap-2 text-sm">
-                  {(batchResult?.results ?? []).map((r: any) => (
-                    <div
-                      key={r.candidateId}
-                      className={cx(
-                        "rounded-2xl border px-4 py-2",
-                        r.ok
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : "border-red-200 bg-red-50 text-red-800",
-                      )}
-                    >
-                      <span className="font-extrabold">{r.candidateId}</span> — {r.message}
+
+                {batchResult?.job && (
+                  <>
+                    <div className="mt-2 text-sm text-neutral-700">
+                      상태: <span className="font-extrabold">{batchResult.job.status}</span> · 진행 {batchResult.job.processed}/{batchResult.job.total} · 성공 {batchResult.job.ok} · 실패 {batchResult.job.failed}
                     </div>
-                  ))}
-                </div>
+                    <div className="mt-3 h-2 w-full rounded-full bg-neutral-200">
+                      <div
+                        className="h-2 rounded-full bg-gradient-to-r from-fuchsia-600 to-pink-600"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.round((batchResult.job.processed / Math.max(1, batchResult.job.total)) * 100),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div className="mt-4 grid gap-2 text-sm">
+                      {(batchResult?.job?.results ?? []).map((r: any) => (
+                        <div
+                          key={r.candidateId}
+                          className={cx(
+                            "rounded-2xl border px-4 py-2",
+                            r.ok
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                              : "border-red-200 bg-red-50 text-red-800",
+                          )}
+                        >
+                          <span className="font-extrabold">{r.candidateId}</span> — {r.message}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {!batchResult?.job && (
+                  <div className="mt-3 text-sm text-neutral-700">
+                    {JSON.stringify(batchResult)}
+                  </div>
+                )}
               </div>
             )}
           </section>

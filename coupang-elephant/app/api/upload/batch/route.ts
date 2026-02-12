@@ -12,6 +12,29 @@ type Body = {
   idempotencyKey?: string;
 };
 
+type BatchResultItem = {
+  candidateId: string;
+  ok: boolean;
+  message: string;
+  uploadedId?: string;
+};
+
+type BatchJob = {
+  jobId: string;
+  status: "queued" | "running" | "done";
+  startedAt: string;
+  finishedAt?: string;
+  total: number;
+  processed: number;
+  ok: number;
+  failed: number;
+  results: BatchResultItem[];
+};
+
+// In-memory job store (MVP). For production: persist to DB/Redis.
+const JOBS: Map<string, BatchJob> = (globalThis as any).__CE_BATCH_JOBS__ || new Map();
+(globalThis as any).__CE_BATCH_JOBS__ = JOBS;
+
 function isValidItem(x: any): x is BatchItem {
   return (
     x &&
@@ -24,6 +47,71 @@ function isValidItem(x: any): x is BatchItem {
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function newJobId() {
+  return `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function runJob(jobId: string, items: BatchItem[]) {
+  const job = JOBS.get(jobId);
+  if (!job) return;
+
+  job.status = "running";
+
+  for (const raw of items) {
+    if (!isValidItem(raw)) {
+      const candidateId =
+        raw && typeof (raw as any).candidateId === "string" ? (raw as any).candidateId : "unknown";
+      job.results.push({ candidateId, ok: false, message: "Invalid item payload." });
+      job.processed += 1;
+      job.failed += 1;
+      continue;
+    }
+
+    // Simulate variable latency.
+    await sleep(80 + Math.round(Math.random() * 140));
+
+    // Simulate occasional failures.
+    const fail = raw.title.toLowerCase().includes("fail") || Math.random() < 0.08;
+    if (fail) {
+      job.results.push({
+        candidateId: raw.candidateId,
+        ok: false,
+        message: "업로드 실패(시뮬레이션). 재시도하세요.",
+      });
+      job.processed += 1;
+      job.failed += 1;
+      continue;
+    }
+
+    job.results.push({
+      candidateId: raw.candidateId,
+      ok: true,
+      message: "업로드 완료",
+      uploadedId: `upl_${raw.candidateId}`,
+    });
+    job.processed += 1;
+    job.ok += 1;
+  }
+
+  job.status = "done";
+  job.finishedAt = new Date().toISOString();
+}
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const jobId = url.searchParams.get("jobId") || "";
+  if (!jobId) {
+    return NextResponse.json({ ok: false, message: "Missing jobId" }, { status: 400 });
+  }
+
+  const job = JOBS.get(jobId);
+  if (!job) {
+    return NextResponse.json({ ok: false, message: "Job not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true, job });
 }
 
 export async function POST(req: Request) {
@@ -42,74 +130,28 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        message:
-          "한 번에 업로드할 수 있는 상품 수를 초과했습니다. (최대 25개)",
+        message: "한 번에 업로드할 수 있는 상품 수를 초과했습니다. (최대 25개)",
       },
       { status: 413 },
     );
   }
 
-  // MVP implementation:
-  // - This simulates the 'batch upload' behavior with per-item results.
-  // - Replace `simulateUpload` with the existing working upload logic (single item)
-  //   and run it sequentially / with limited concurrency.
-
+  const jobId = newJobId();
   const startedAt = new Date().toISOString();
-
-  const results: Array<{
-    candidateId: string;
-    ok: boolean;
-    message: string;
-    uploadedId?: string;
-  }> = [];
-
-  // Sequential processing avoids rate-limit bursts and simplifies error handling.
-  for (const raw of items) {
-    if (!isValidItem(raw)) {
-      const candidateId =
-        raw && typeof (raw as any).candidateId === "string" ? (raw as any).candidateId : "unknown";
-      results.push({
-        candidateId,
-        ok: false,
-        message: "Invalid item payload.",
-      });
-      continue;
-    }
-
-    // Simulate variable latency.
-    await sleep(80 + Math.round(Math.random() * 140));
-
-    // Simulate occasional failures.
-    const fail = raw.title.toLowerCase().includes("fail") || Math.random() < 0.08;
-    if (fail) {
-      results.push({
-        candidateId: raw.candidateId,
-        ok: false,
-        message: "업로드 실패(시뮬레이션). 재시도하세요.",
-      });
-      continue;
-    }
-
-    results.push({
-      candidateId: raw.candidateId,
-      ok: true,
-      message: "업로드 완료",
-      uploadedId: `upl_${raw.candidateId}`,
-    });
-  }
-
-  const okCount = results.filter((r) => r.ok).length;
-  const failCount = results.length - okCount;
-
-  return NextResponse.json({
-    ok: failCount === 0,
+  const job: BatchJob = {
+    jobId,
+    status: "queued",
     startedAt,
-    finishedAt: new Date().toISOString(),
-    summary: {
-      total: results.length,
-      ok: okCount,
-      failed: failCount,
-    },
-    results,
-  });
+    total: items.length,
+    processed: 0,
+    ok: 0,
+    failed: 0,
+    results: [],
+  };
+  JOBS.set(jobId, job);
+
+  // Fire-and-forget async processing.
+  void runJob(jobId, items as BatchItem[]);
+
+  return NextResponse.json({ ok: true, jobId });
 }
