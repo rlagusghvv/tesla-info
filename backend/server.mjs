@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { loadEnvFile, upsertEnvFile } from './env.mjs';
 import { createTeslaMateClient } from './teslamate_client.mjs';
 import { syncTokensToTeslaMateRuntime } from './teslamate_token_bridge.mjs';
+import { exchangeAuthorizationCode } from './tesla_oauth_common.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +35,8 @@ const TESLAMATE_CAR_ID = process.env.TESLAMATE_CAR_ID || '';
 const TESLAMATE_AUTH_HEADER = process.env.TESLAMATE_AUTH_HEADER || 'Authorization';
 const TESLAMATE_TOKEN_QUERY_KEY = process.env.TESLAMATE_TOKEN_QUERY_KEY || '';
 const TESLAMATE_CONTAINER_NAME = process.env.TESLAMATE_CONTAINER_NAME || 'teslamate-stack-teslamate-1';
+const BACKEND_API_TOKEN = process.env.BACKEND_API_TOKEN || '';
+const TESLAMATE_SYNC_ON_EXCHANGE = process.env.TESLAMATE_SYNC_ON_EXCHANGE !== '0';
 const TESLAMATE_AUTO_AUTH_REPAIR = process.env.TESLAMATE_AUTO_AUTH_REPAIR !== '0';
 const TESLAMATE_AUTH_REPAIR_COOLDOWN_MS = Math.max(10_000, Number(process.env.TESLAMATE_AUTH_REPAIR_COOLDOWN_MS || 180_000));
 const TESLAMATE_AUTH_REPAIR_SETTLE_MS = Math.max(1_000, Number(process.env.TESLAMATE_AUTH_REPAIR_SETTLE_MS || 3_000));
@@ -118,9 +121,23 @@ function sendJson(res, status, body) {
     'Content-Length': Buffer.byteLength(payload),
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization'
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token'
   });
   res.end(payload);
+}
+
+function requireBackendToken(req) {
+  if (!BACKEND_API_TOKEN) {
+    return { ok: true };
+  }
+  const header = String(req.headers['x-backend-token'] || '').trim();
+  const auth = String(req.headers.authorization || '').trim();
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+
+  if (header === BACKEND_API_TOKEN || bearer === BACKEND_API_TOKEN) {
+    return { ok: true };
+  }
+  return { ok: false, message: 'Unauthorized (missing/invalid backend token).' };
 }
 
 function inferJwtGrantType(token) {
@@ -704,6 +721,99 @@ async function route(req, res) {
       sendJson(res, 200, { ok: true, snapshot: snapshotResponse() });
     } catch (error) {
       sendJson(res, 400, { ok: false, message: error instanceof Error ? error.message : 'Invalid payload' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/tesla/oauth/exchange') {
+    const authz = requireBackendToken(req);
+    if (!authz.ok) {
+      sendJson(res, 401, { ok: false, message: authz.message });
+      return;
+    }
+
+    let payload = {};
+    try {
+      payload = await readJson(req);
+    } catch {
+      payload = {};
+    }
+
+    const codeInput = String(payload?.code || payload?.codeInput || payload?.callbackUrl || '').trim();
+    if (!codeInput) {
+      sendJson(res, 400, { ok: false, message: 'Missing code/callbackUrl.' });
+      return;
+    }
+
+    const clientId = TESLA_CLIENT_ID;
+    const clientSecret = TESLA_CLIENT_SECRET;
+    const redirectUri = process.env.TESLA_REDIRECT_URI || '';
+    const codeVerifier = process.env.TESLA_CODE_VERIFIER || '';
+    const audience = process.env.TESLA_AUDIENCE || TESLA_FLEET_API_BASE;
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      sendJson(res, 500, { ok: false, message: 'Server missing TESLA_CLIENT_ID/SECRET/REDIRECT_URI.' });
+      return;
+    }
+    if (!codeVerifier) {
+      sendJson(res, 500, { ok: false, message: 'Server missing TESLA_CODE_VERIFIER. Run oauth start first.' });
+      return;
+    }
+
+    try {
+      const exchanged = await exchangeAuthorizationCode({
+        codeInput,
+        clientId,
+        clientSecret,
+        redirectUri,
+        codeVerifier,
+        audience
+      });
+
+      const accessToken = exchanged.accessToken;
+      const refreshToken = exchanged.refreshToken;
+      const expiresAt = exchanged.expiresAt;
+
+      upsertEnvFile(ROOT_ENV_PATH, {
+        TESLA_USER_ACCESS_TOKEN: accessToken,
+        TESLA_USER_REFRESH_TOKEN: refreshToken || '',
+        TESLA_USER_TOKEN_EXPIRES_AT: expiresAt,
+        TESLA_OAUTH_STATE: '',
+        TESLA_CODE_VERIFIER: ''
+      });
+
+      // Update runtime token variables for this process
+      TESLA_USER_ACCESS_TOKEN = accessToken;
+      TESLA_USER_REFRESH_TOKEN = refreshToken || '';
+      TESLA_TOKEN_GRANT_TYPE = inferJwtGrantType(TESLA_USER_ACCESS_TOKEN);
+
+      let sync = { ok: false, skipped: true, message: 'Skipped' };
+      if (TESLAMATE_SYNC_ON_EXCHANGE && refreshToken) {
+        try {
+          const rpc = syncTokensToTeslaMateRuntime({
+            accessToken,
+            refreshToken,
+            containerName: TESLAMATE_CONTAINER_NAME
+          });
+          sync = { ok: true, skipped: false, message: 'Synced to TeslaMate runtime', rpc: rpc?.stdout || '' };
+        } catch (error) {
+          sync = {
+            ok: false,
+            skipped: false,
+            message: error instanceof Error ? error.message : 'TeslaMate runtime sync failed.'
+          };
+        }
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        expiresAt,
+        syncedTeslaMateRuntime: sync.ok,
+        sync,
+        note: 'Tokens exchanged and saved server-side. Tokens are not returned by this endpoint.'
+      });
+    } catch (error) {
+      sendJson(res, 502, { ok: false, message: error instanceof Error ? error.message : 'Token exchange failed.' });
     }
     return;
   }
