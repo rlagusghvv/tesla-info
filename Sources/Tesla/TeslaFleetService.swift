@@ -219,7 +219,7 @@ actor TeslaFleetService {
         let body = try JSONSerialization.data(withJSONObject: payload, options: [])
         let data = try await request(path: "/api/1/vehicles/fleet_status", method: "POST", body: body)
         let rawPreview = String(data: data, encoding: .utf8)
-            .map { $0.count > 700 ? String($0.prefix(700)) + "..." : $0 } ?? "(binary)"
+            .map { $0.count > 280 ? String($0.prefix(280)) + "..." : $0 } ?? "(binary)"
 
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return FleetStatusDiagnostics(

@@ -732,8 +732,9 @@ struct ConnectionGuideView: View {
                 vehicle_command_protocol_required: \(protocolText)
                 total_number_of_keys: \(keyCountText)
                 status_keys: \(diag.statusKeys)
-                response_keys: \(diag.responseKeys)
-                raw_preview: \(diag.rawPreview)\(needsPairingHint)
+                response_keys: \(diag.responseKeys)\(needsPairingHint)
+
+                (raw_preview omitted to keep UI responsive)
                 """
             } catch {
                 teslaAuth.statusMessage = error.localizedDescription
