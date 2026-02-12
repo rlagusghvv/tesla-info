@@ -204,7 +204,7 @@ final class CarModeViewModel: ObservableObject {
     }
 
     var navigationDestinationText: String {
-        guard let nav = snapshot.navigation else { return "No active Tesla route" }
+        guard let nav = snapshot.navigation else { return "경로 없음" }
         let name = nav.destinationName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !name.isEmpty { return name }
         if let destination = nav.destination {
@@ -216,7 +216,7 @@ final class CarModeViewModel: ObservableObject {
     }
 
     var navigationSummaryText: String {
-        guard let nav = snapshot.navigation else { return "Tesla route unavailable" }
+        guard let nav = snapshot.navigation else { return "경로 없음" }
         var parts: [String] = []
         if let remainingKm = nav.remainingKm {
             parts.append(String(format: "%.1f km left", remainingKm))

@@ -241,17 +241,12 @@ struct CarModeView: View {
 
     private var content: some View {
         GeometryReader { proxy in
-            let centerHeight = min(360, max(220, proxy.size.height * 0.42))
-            let sideHeight = max(260, proxy.size.height - centerHeight - 16)
-
-            VStack(spacing: 12) {
-                regularCenterPanel
-                    .frame(height: centerHeight)
-
-                Group {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 12) {
+                    regularCenterPanel
                     sidePanel
                 }
-                .frame(height: sideHeight)
+                .padding(.bottom, 8)
             }
             .frame(maxWidth: min(phoneLayoutMaxWidth, proxy.size.width))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -408,7 +403,7 @@ struct CarModeView: View {
                     .font(.system(size: 19, weight: .black, design: .rounded))
                     .foregroundStyle(Color.black.opacity(0.6))
                 Spacer(minLength: 0)
-                if !viewModel.navigationDestinationText.isEmpty {
+                if viewModel.snapshot.navigation != nil {
                     Text(viewModel.navigationDestinationText)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.black.opacity(0.66))
