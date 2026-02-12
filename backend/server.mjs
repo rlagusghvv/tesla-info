@@ -622,7 +622,14 @@ async function forwardTeslaCommand(command) {
   let status;
   try {
     const vin = await resolveVehicleVin();
-    const result = await fetchTeslaJson(`/api/1/vehicles/${vin}/command/${encodeURIComponent(command)}`, 'POST', {});
+
+    // Fleet API note: wake_up is NOT a /command endpoint.
+    const path =
+      command === 'wake_up'
+        ? `/api/1/vehicles/${vin}/wake_up`
+        : `/api/1/vehicles/${vin}/command/${encodeURIComponent(command)}`;
+
+    const result = await fetchTeslaJson(path, 'POST', {});
     parsed = result.parsed;
     status = result.status;
   } catch (error) {
@@ -903,11 +910,24 @@ async function route(req, res) {
         return;
       }
 
+      // In teslamate mode we want telemetry (location etc.) from TeslaMate,
+      // but vehicle controls (lock/unlock/climate/wake) may not be supported by the TeslaMate API wrapper.
+      // Also, even for non-owner setups, Fleet API can still allow driver-level commands.
+      const CONTROL_COMMANDS_VIA_FLEET = new Set([
+        'door_lock',
+        'door_unlock',
+        'auto_conditioning_start',
+        'auto_conditioning_stop',
+        'wake_up'
+      ]);
+
       let result;
       if (state.mode === 'simulator') {
         result = applySimCommand(command);
       } else if (state.mode === 'teslamate') {
-        result = await forwardTeslaMateCommand(command);
+        result = CONTROL_COMMANDS_VIA_FLEET.has(command)
+          ? await forwardTeslaCommand(command)
+          : await forwardTeslaMateCommand(command);
       } else {
         result = await forwardTeslaCommand(command);
       }
