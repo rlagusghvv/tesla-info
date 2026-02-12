@@ -1155,8 +1155,10 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 - `localhost:3000`에서 실제로 떠 있는 서비스는 Next 프로토타입이 아니라,
   - `~/.openclaw/workspace/coupang-automation`의 `server.js`(express) + `public/app_shell.html` 입니다.
   - 즉, 메인 반영은 **coupang-automation 쪽 UI를 새 디자인으로 맞추는 작업**이 최단거리입니다.
-- 즉시 조치(초기 디자인 톤 적용):
-  - `coupang-automation/public/styles.css`의 컬러/배경/쉐도우를 신 디자인(fuchsia/pink) 톤으로 변경(카드/배경 느낌 맞춤)
+- 즉시 조치(메인에 직접 반영되는 프론트 수정):
+  - `coupang-automation/public/styles.css`의 컬러/배경/쉐도우를 신 디자인(fuchsia/pink) 톤으로 1차 변경
+  - 버튼/포커스/상단바(sticky)/탭 active 그라데이션까지 신 디자인 톤으로 추가 반영
+  - 작업 브랜치: `coupang-automation` repo `fix/preview-detail-v008`
 
 ### [다음 단계(속도/효과 우선)]
 1) `app_shell.html`의 레이아웃/컴포넌트(버튼/카드/필)들을 신 디자인(192.168.0.31:3333 스타일)과 완전히 동일하게 리스킨
