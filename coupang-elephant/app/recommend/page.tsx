@@ -66,26 +66,34 @@ export default function RecommendPage() {
     setSelected(nextSel);
   }
 
-  async function uploadBatch() {
+  async function uploadBatch(itemsOverride?: Array<{ candidateId: string; title: string }>) {
     setError(null);
     setBatchResult(null);
     setJobId(null);
 
-    if (selectedIds.length === 0) {
+    const items =
+      itemsOverride ??
+      candidates
+        .filter((c) => selected[c.candidateId])
+        .map((c) => ({ candidateId: c.candidateId, title: c.title }));
+
+    if (items.length === 0) {
       setError("업로드할 상품을 선택해 주세요.");
       return;
     }
 
     setUploading(true);
     try {
-      const items = candidates
-        .filter((c) => selected[c.candidateId])
-        .map((c) => ({ candidateId: c.candidateId, title: c.title }));
+
+      const idempotencyKey = `rec_upload_${items
+        .map((x) => x.candidateId)
+        .sort()
+        .join("_")}`;
 
       const res = await fetch("/api/upload/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, idempotencyKey }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -143,7 +151,7 @@ export default function RecommendPage() {
               분석
             </a>
             <button
-              onClick={uploadBatch}
+              onClick={() => uploadBatch()}
               disabled={uploading || selectedIds.length === 0}
               className={cx(
                 "rounded-full px-5 py-2 text-sm font-extrabold text-white shadow-sm",
@@ -259,9 +267,37 @@ export default function RecommendPage() {
 
                 {batchResult?.job && (
                   <>
-                    <div className="mt-2 text-sm text-neutral-700">
-                      상태: <span className="font-extrabold">{batchResult.job.status}</span> · 진행 {batchResult.job.processed}/{batchResult.job.total} · 성공 {batchResult.job.ok} · 실패 {batchResult.job.failed}
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-700">
+                      <div>
+                        상태: <span className="font-extrabold">{batchResult.job.status}</span> · 진행 {batchResult.job.processed}/{batchResult.job.total} · 성공 {batchResult.job.ok} · 실패 {batchResult.job.failed}
+                      </div>
+
+                      {batchResult.job.status === "done" && batchResult.job.failed > 0 && (
+                        <button
+                          onClick={() => {
+                            const failed = (batchResult?.job?.results ?? []).filter((r: any) => !r.ok);
+                            uploadBatch(
+                              failed.map((r: any) => ({
+                                candidateId: r.candidateId,
+                                title:
+                                  candidates.find((c) => c.candidateId === r.candidateId)?.title ??
+                                  r.candidateId,
+                              })),
+                            );
+                          }}
+                          disabled={uploading}
+                          className={cx(
+                            "rounded-full px-4 py-2 text-xs font-extrabold text-white",
+                            uploading
+                              ? "bg-neutral-300 cursor-not-allowed"
+                              : "bg-neutral-900 hover:bg-neutral-800",
+                          )}
+                        >
+                          실패 항목만 재시도
+                        </button>
+                      )}
                     </div>
+
                     <div className="mt-3 h-2 w-full rounded-full bg-neutral-200">
                       <div
                         className="h-2 rounded-full bg-gradient-to-r from-fuchsia-600 to-pink-600"

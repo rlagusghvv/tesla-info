@@ -12,6 +12,11 @@ type Body = {
   idempotencyKey?: string;
 };
 
+// In-memory idempotency map (MVP). For production: persist to DB/Redis.
+const IDEMPOTENCY: Map<string, string> =
+  (globalThis as any).__CE_BATCH_IDEMPOTENCY__ || new Map();
+(globalThis as any).__CE_BATCH_IDEMPOTENCY__ = IDEMPOTENCY;
+
 type BatchResultItem = {
   candidateId: string;
   ok: boolean;
@@ -136,6 +141,14 @@ export async function POST(req: Request) {
     );
   }
 
+  const idemKey = typeof body?.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
+  if (idemKey) {
+    const existingJobId = IDEMPOTENCY.get(idemKey);
+    if (existingJobId && JOBS.has(existingJobId)) {
+      return NextResponse.json({ ok: true, jobId: existingJobId, reused: true });
+    }
+  }
+
   const jobId = newJobId();
   const startedAt = new Date().toISOString();
   const job: BatchJob = {
@@ -149,6 +162,7 @@ export async function POST(req: Request) {
     results: [],
   };
   JOBS.set(jobId, job);
+  if (idemKey) IDEMPOTENCY.set(idemKey, jobId);
 
   // Fire-and-forget async processing.
   void runJob(jobId, items as BatchItem[]);
