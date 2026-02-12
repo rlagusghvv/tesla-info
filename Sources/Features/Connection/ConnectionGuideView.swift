@@ -469,7 +469,7 @@ struct ConnectionGuideView: View {
             .buttonStyle(SecondaryCarButtonStyle())
             .frame(height: 70)
 
-            Text("REST key is used for search/route API. JavaScript key enables Kakao map rendering in Navi. For App Store release, keys should be proxied by a backend.")
+            Text("REST key is used for search/route API. JavaScript key enables Kakao map rendering in Navi. In Kakao Developers, add Web platform domain `tesla.splui.com` for this JS key.")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
         }

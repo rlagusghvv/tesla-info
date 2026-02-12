@@ -37,6 +37,8 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
+        // Kakao JS map key is domain-scoped (web platform). Use the app's public host as document base.
+        private static let mapDocumentBaseURL = URL(string: "https://tesla.splui.com")
         private var loadedKey: String = ""
         private var isPageReady = false
         private var pendingPayload: [String: Any]?
@@ -52,11 +54,8 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
             lastPayloadSignature = ""
 
             let html = Self.htmlTemplate(appKey: key)
-            // IMPORTANT: Kakao Maps JS SDK applies domain restrictions.
-            // If the WebView loads HTML without a proper baseURL, the origin can become `dapi.kakao.com`
-            // (or `about:blank`), which will not match Kakao Developers "Web platform" allowed domains.
-            // Use our own domain as baseURL so the JS key domain allowlist works.
-            webView.loadHTMLString(html, baseURL: URL(string: "https://tesla.splui.com"))
+            // IMPORTANT: Kakao Maps JS SDK applies domain restrictions. Use our public host as document base.
+            webView.loadHTMLString(html, baseURL: Self.mapDocumentBaseURL)
         }
 
         func pushState(to webView: WKWebView, vehicleCoordinate: CLLocationCoordinate2D?, polyline: [CLLocationCoordinate2D]) {

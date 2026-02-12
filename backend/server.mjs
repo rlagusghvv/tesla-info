@@ -661,16 +661,72 @@ async function forwardTeslaMateCommand(command) {
     };
   }
 
-  const result = await teslaMateClient.sendCommand(command);
-  if (result.ok) {
-    try {
-      await fetchTeslaMateVehicleData();
-    } catch {
-      // Non-fatal: command result is still useful even if refresh fails.
+  const candidates = teslaMateCommandCandidates(command);
+  let lastResult = null;
+
+  for (const candidate of candidates) {
+    const result = await teslaMateClient.sendCommand(candidate);
+    lastResult = result;
+    if (result.ok) {
+      try {
+        await fetchTeslaMateVehicleData();
+      } catch {
+        // Non-fatal: command result is still useful even if refresh fails.
+      }
+
+      const suffix = candidate === command ? '' : ` (mapped from ${command} -> ${candidate})`;
+      return {
+        ...result,
+        message: `${result.message}${suffix}`
+      };
+    }
+
+    if (!isLikelyUnsupportedTeslaMateCommand(result)) {
+      return result;
     }
   }
 
-  return result;
+  return lastResult || {
+    ok: false,
+    status: 502,
+    message: `TeslaMate command failed: ${command}`
+  };
+}
+
+function isLikelyUnsupportedTeslaMateCommand(result) {
+  const status = Number(result?.status || 0);
+  if (status === 404) {
+    return true;
+  }
+  const text = String(result?.message || '').toLowerCase();
+  return (
+    text.includes('not found') ||
+    text.includes('unsupported') ||
+    text.includes('unknown command') ||
+    text.includes('invalid command')
+  );
+}
+
+function teslaMateCommandCandidates(command) {
+  const normalized = String(command || '').trim();
+  switch (normalized) {
+    case 'door_lock':
+    case 'lock':
+      return ['door_lock', 'lock'];
+    case 'door_unlock':
+    case 'unlock':
+      return ['door_unlock', 'unlock'];
+    case 'auto_conditioning_start':
+    case 'climate_on':
+      return ['auto_conditioning_start', 'climate_on'];
+    case 'auto_conditioning_stop':
+    case 'climate_off':
+      return ['auto_conditioning_stop', 'climate_off'];
+    case 'wake_up':
+      return ['wake_up'];
+    default:
+      return [normalized];
+  }
 }
 
 async function fetchActiveVehicleData() {
