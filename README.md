@@ -38,6 +38,7 @@ This mode lets the iPad app talk to Tesla Fleet API directly (no local backend n
 
 Security note: this MVP stores your Tesla client secret and tokens in iOS Keychain (not suitable for public distribution).
 Navigation note: in-app destination search/routing uses a Kakao REST API key stored in iOS Keychain (also not suitable for public distribution).
+Kakao JS map note: if Kakao map stays blank, verify the JavaScript key has Web platform domain `tesla.splui.com` allowed in Kakao Developers.
 
 ## Folder tree
 

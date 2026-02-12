@@ -934,3 +934,43 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 
 ### [특이 사항]
 - 이번 변경은 앱의 기본 연결값/가이드 변경이며, 서버 비즈니스 로직에는 영향 없음.
+
+## 2026-02-12 (추가 업데이트 @Kakao JS 지도/ TeslaMate 명령 호환 개선)
+
+### [완료된 작업]
+- 사용자 이슈 대응:
+  1) Kakao JS 키를 넣어도 지도 blank
+  2) TeslaMate 경유 차량 조작 실패
+- 코드 수정:
+  - `Sources/Features/Navi/KakaoWebRouteMapView.swift`
+    - web map document base URL을 `https://tesla.splui.com`로 변경
+    - 목적: Kakao JavaScript key의 Web domain 제한과 정합성 확보
+  - `backend/server.mjs`
+    - TeslaMate command alias 재시도 로직 추가:
+      - `door_lock` -> `lock`
+      - `door_unlock` -> `unlock`
+      - `auto_conditioning_start` -> `climate_on`
+      - `auto_conditioning_stop` -> `climate_off`
+    - 404/unsupported 계열에서만 fallback 시도
+  - `Sources/Features/Connection/ConnectionGuideView.swift`
+    - Kakao JS key 설정 안내 문구에 `tesla.splui.com` Web domain 요구사항 명시
+  - `README.md`
+    - Kakao map blank 시 도메인 whitelist 확인 안내 추가
+  - `docs/architecture_notes.md`
+    - 해당 아키텍처/운영 변경 사항 기록
+- 검증:
+  - `node --check backend/server.mjs` 통과
+  - `xcodebuild ... build` 결과 `BUILD SUCCEEDED`
+
+### [현재 상태]
+- Kakao JS map blank의 대표 원인(도메인 정합성) 대응 코드 반영.
+- TeslaMate 명령 endpoint 구현 차이로 인한 command 미동작 가능성을 alias 재시도로 완화.
+
+### [다음 단계]
+- 맥미니/실기기 검증:
+  1) Kakao Developers > JS key Web domain에 `tesla.splui.com` 등록 확인
+  2) Navi 탭에서 하단 라벨이 `Map: Kakao`인지 확인
+  3) Lock/Unlock/A/C 명령 테스트(응답 메시지에 mapped 안내 확인 가능)
+
+### [특이 사항]
+- 리스/DRIVER 권한/차량 상태(절전, command 제한) 이슈는 별도이며, alias 개선으로도 모두 해결되지는 않을 수 있음.

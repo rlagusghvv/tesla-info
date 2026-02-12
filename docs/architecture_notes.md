@@ -218,3 +218,23 @@ All future implementation and refactoring should conform to these rules.
     - `TESLAMATE_AUTO_AUTH_REPAIR`
     - `TESLAMATE_AUTH_REPAIR_COOLDOWN_MS`
     - `TESLAMATE_AUTH_REPAIR_SETTLE_MS`
+
+## Update 2026-02-12 (Kakao Web Domain + TeslaMate Command Alias Hardening)
+
+- Self-review (before coding):
+  - SoC: 지도 렌더링 안정화는 Navi web adapter, 명령 호환성은 backend application layer에서 처리.
+  - DIP: Kakao API client contract 및 telemetry service contract는 변경하지 않음.
+  - Multi-tenancy: user-scoped key storage 흐름 유지.
+  - Resilience/Observability: 지도 blank 및 명령 404를 즉시 완화하는 runtime fallback 경로 추가.
+- Infrastructure/application update:
+  - `KakaoWebRouteMapView`:
+    - `WKWebView.loadHTMLString` baseURL을 `https://tesla.splui.com`로 고정해 Kakao JS key의 웹 도메인 제한과 정합.
+  - `backend/server.mjs`:
+    - TeslaMate command 호출 시 alias 후보 자동 시도:
+      - `door_lock <-> lock`
+      - `door_unlock <-> unlock`
+      - `auto_conditioning_start <-> climate_on`
+      - `auto_conditioning_stop <-> climate_off`
+    - 404/unsupported 계열 실패에서만 alias 재시도.
+- UX/docs update:
+  - `ConnectionGuideView`와 `README`에 Kakao JS key의 Web platform domain(`tesla.splui.com`) 요구사항 명시.
