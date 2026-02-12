@@ -1148,11 +1148,21 @@ When resuming work, read this file first and continue from **[다음 단계]**.
   - `docs/coupang_elephant_recommendation_fix_plan.md` (job/progress/idempotency 방향 포함)
   - 현재 job/progress/idempotency는 in-memory(MVP)라 서버 재시작시 초기화됨 → 다음 단계에서 Redis/DB로 승격 필요
 
+### [배포/메인 도메인 관련(대표 요청 @23:30)]
+- 메인: `https://app.splui.com/app/`
+- 현재 이 Mac mini의 cloudflared 터널 설정:
+  - `app.splui.com` → `http://localhost:3000`
+- `localhost:3000`에서 실제로 떠 있는 서비스는 Next 프로토타입이 아니라,
+  - `~/.openclaw/workspace/coupang-automation`의 `server.js`(express) + `public/app_shell.html` 입니다.
+  - 즉, 메인 반영은 **coupang-automation 쪽 UI를 새 디자인으로 맞추는 작업**이 최단거리입니다.
+- 즉시 조치(초기 디자인 톤 적용):
+  - `coupang-automation/public/styles.css`의 컬러/배경/쉐도우를 신 디자인(fuchsia/pink) 톤으로 변경(카드/배경 느낌 맞춤)
+
 ### [다음 단계(속도/효과 우선)]
-1) 실제 업로드(단일 업로드) 로직을 `/api/upload/batch` job runner에 연결 (현재는 시뮬레이션)
-2) job 저장소를 Redis/DB로 변경(서버 재시작/스케일 대응)
-3) 업로드 동시성 제한(예: 2~3) + 백오프 재시도 + rate-limit 대응
-4) 추천 결과(후보) 생성 로직을 실제 데이터 기반으로 교체
+1) `app_shell.html`의 레이아웃/컴포넌트(버튼/카드/필)들을 신 디자인(192.168.0.31:3333 스타일)과 완전히 동일하게 리스킨
+2) 메인 기능(발굴/분석/관리/업로드/추천/배치업로드 등) 라우팅/화면을 `app_shell` 안에서 정리(탭/사이드바/상단 네비)
+3) 추천→복수선택 업로드는 현재 구현된 job/progress/idempotency/retry 흐름을 **메인 app_shell 흐름에 이식**
+4) 필요 시 Next 기반으로 재구축(장기)하되, 단기엔 express+static UI로 빠르게 기능/디자인 동시 반영
 
 ## 2026-02-12 (추가 업데이트 @18:55 Backend 재시작 상태)
 - `backend/server.mjs`는 현재 8787에서 실행 중(EADDRINUSE 확인됨: 이미 떠 있음)
