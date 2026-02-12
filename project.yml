@@ -17,7 +17,7 @@ targets:
     sources:
       - path: Sources
     info:
-      path: Config/Info.plist
+      path: Shared/Config/Info.plist
       properties:
         BackendBaseURL: http://127.0.0.1:8787
         NSLocalNetworkUsageDescription: "로컬 네트워크의 텔레메트리 서버(Mac 백엔드)에 연결해 차량 정보를 표시하기 위해 필요합니다."
@@ -30,7 +30,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: TeslaSubDash
-        INFOPLIST_FILE: Config/Info.plist
+        INFOPLIST_FILE: Shared/Config/Info.plist
 schemes:
   TeslaSubDash:
     build:

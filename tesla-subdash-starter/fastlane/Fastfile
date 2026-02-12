@@ -107,8 +107,7 @@ def build_archive!(project:, scheme:, team_id:)
     # Avoid fastlane's profile mapping enforcement.
     skip_profile_detection: true,
     xcargs: [
-      provisioning_auth_xcargs,
-      "-UseModernBuildSystem=NO"
+      provisioning_auth_xcargs
     ].join(" "),
     # Note: gym already forwards `xcargs` to the export step on recent Xcodes.
     # Supplying `export_xcargs` duplicates -authenticationKeyPath/-ID/-IssuerID.
