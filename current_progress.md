@@ -5,11 +5,12 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 
 ## 2026-02-12
 
-### [TestFlight 업로드(빌드 24) – 누가/어떤 키로 업로드했나]
+### [TestFlight 업로드(빌드 24/25) – 누가/어떤 키로 업로드했나]
 - 업로드 실행 주체: 이 Mac mini(OpenClaw ops 세션)에서 fastlane으로 업로드 수행
 - 인증 방식: App Store Connect API Key(.p8)
-  - 로그에 `-authenticationKeyPath "/Users/kimhyunhomacmini/.openclaw/secrets/appstoreconnect/AuthKey_87GSWAQ5P2.p8"` 로 표시됨
-  - gym → upload_to_testflight 단계 모두 성공(15:04 KST)
+  - (Build 24) 로그에 `-authenticationKeyPath "/Users/kimhyunhomacmini/.openclaw/secrets/appstoreconnect/AuthKey_87GSWAQ5P2.p8"` 로 표시됨
+  - (Build 24) gym → upload_to_testflight 단계 모두 성공(15:04 KST)
+  - (Build 25) `~/Library/Logs/gym/TeslaSubDash-TeslaSubDash.log` 타임스탬프 15:31 기준으로 archive 성공 확인, `Shared/Config/Info.plist`의 `CFBundleVersion=25` 로 증가 확인
 - 참고: 중간에 `cannot find '$naviHUDVisible' in scope` 에러는 Debug(simulator) 빌드에서 발생한 별도 로그이며, Release 아카이브/업로드 성공과는 무관
 
 ### [키 공유 요청 관련 주의]
@@ -39,6 +40,11 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 - 사용자 요청(14:58): 다른 봇들이 "태그될 때만 말하기"로 설정된 것으로 보이니, (1) 운영 룰/프롬프트 레벨에서 풀어서 태그 없이도 **완료!/확인!** ack를 남길 수 있게 변경.
   - 참고: 이 인스턴스(ui, 화면삼)는 다른 봇의 프롬프트/설정을 직접 수정할 권한/세션이 없음. 팀장 봇 쪽 설정 또는 각 봇의 system/developer 프롬프트에서 변경 필요.
 - 추가 코멘트: 키는 이미 존재하며, 최근 build 22도 자동 업로드 되었음.
+
+### [업로드 확인 - 15:32]
+- fastlane `report.xml` 갱신됨 (step `gym` + `upload_to_testflight` 실행 기록)
+- 로컬 프로젝트 빌드 넘버가 **25로 bump**된 상태(Info.plist / project.pbxproj 변경 확인)
+- 주의: TestFlight에서 실제로 보이기까지는 processing 때문에 수 분 지연될 수 있음
 
 ### [완료]
 - Workspace scan: `ls -R` 완료
