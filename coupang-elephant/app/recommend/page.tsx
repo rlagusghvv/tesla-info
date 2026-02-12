@@ -156,7 +156,7 @@ export default function RecommendPage() {
           <div className="mt-4 flex gap-2">
             <a
               className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-5 py-2 text-sm font-bold text-white hover:bg-neutral-800"
-              href="/app/console"
+              href="/console"
             >
               콘솔 열고 로그인
             </a>

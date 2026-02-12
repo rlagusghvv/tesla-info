@@ -34,7 +34,7 @@ export default function Shell({
     <div className="min-h-screen bg-white text-neutral-900">
       <header className="sticky top-0 z-50 border-b border-black/5 bg-white/75 backdrop-blur supports-[backdrop-filter]:bg-white/55">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4">
-          <Link href="/app/" className="flex items-center gap-2 font-black tracking-tight">
+          <Link href="/" className="flex items-center gap-2 font-black tracking-tight">
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-pink-500 text-white">
               C
             </span>
@@ -42,8 +42,8 @@ export default function Shell({
           </Link>
           <nav className="hidden items-center gap-2 pl-4 md:flex">
             <NavLink href="/recommend" label="추천" />
-            <NavLink href="/app/upload" label="업로드" />
-            <NavLink href="/app/console" label="콘솔" />
+            <NavLink href="/upload" label="업로드" />
+            <NavLink href="/console" label="콘솔" />
           </nav>
           <div className="ml-auto hidden text-sm font-semibold text-neutral-600 md:block">
             {title ? <span className="text-neutral-900">{title}</span> : null}

@@ -14,19 +14,19 @@ export default function Home() {
 
           <div className="mt-4 flex flex-wrap gap-2">
             <a
-              href="/app/recommend"
+              href="/recommend"
               className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-600 to-pink-600 px-5 py-2 text-sm font-extrabold text-white shadow hover:opacity-95"
             >
               추천
             </a>
             <a
-              href="/app/upload"
+              href="/upload"
               className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-5 py-2 text-sm font-bold text-white hover:bg-neutral-800"
             >
               업로드
             </a>
             <a
-              href="/app/console"
+              href="/console"
               className="inline-flex items-center justify-center rounded-full px-5 py-2 text-sm font-bold text-neutral-800 hover:bg-black/5"
             >
               콘솔(전체 기능)
@@ -37,7 +37,7 @@ export default function Home() {
         <section className="rounded-3xl border border-black/10 bg-white shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)] overflow-hidden">
           <div className="flex items-center justify-between border-b border-black/5 px-5 py-3">
             <div className="text-sm font-extrabold">콘솔 (기능 이식: v1)</div>
-            <a href="/app/console" className="text-xs font-bold text-neutral-600 hover:text-neutral-900">
+            <a href="/console" className="text-xs font-bold text-neutral-600 hover:text-neutral-900">
               새 창으로 열기
             </a>
           </div>
