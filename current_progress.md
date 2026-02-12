@@ -1130,13 +1130,19 @@ When resuming work, read this file first and continue from **[다음 단계]**.
     - APPLE_TEAM_ID
 
 ## 2026-02-12 (추가 업데이트 @18:52 쿠팡 코끼리 진행상황)
-- Coupilot 레퍼런스 기반 랜딩 1차: `coupang-elephant/app/page.tsx`
+- Coupilot 레퍼런스 기반 랜딩 1차(UI): `coupang-elephant/app/page.tsx`
+  - 헤더/히어로/CTA 구성 + `/recommend` 진입 링크 추가
 - "돌아가게" MVP 기능(테스트용):
-  - 분석: `GET /analyze` + `POST /api/analyze`
-  - 추천/복수선택 업로드(배치 업로드): `GET /recommend` + `POST /api/upload/batch`
-    - 배치 업로드 결과를 상품별로 success/fail 분해 표시(전체 실패처럼 보이는 문제 방지)
+  - 분석 UI: `GET /analyze` + `POST /api/analyze`
+  - 추천 UI: `GET /recommend`
+    - 추천 리스트(현재 mock) + 체크박스 선택 UI
+    - 상단에 "선택 N개 업로드" 버튼
+  - 배치 업로드 API: `POST /api/upload/batch`
+    - 기존: 한번에 처리 후 결과 반환
+    - 개선: **jobId 반환 → 진행률/상품별 결과를 polling으로 표시** (업로드가 길어져도 UI가 멈추거나 전체 실패처럼 보이지 않게)
 - 배치 업로드 오류(대표 피드백) 대응 문서:
   - `docs/coupang_elephant_recommendation_fix_plan.md` (job/progress/idempotency 방향 포함)
+  - 현재 job/progress는 in-memory(MVP)라 서버 재시작시 초기화됨 → 다음 단계에서 Redis/DB로 승격 필요
 
 ## 2026-02-12 (추가 업데이트 @18:55 Backend 재시작 상태)
 - `backend/server.mjs`는 현재 8787에서 실행 중(EADDRINUSE 확인됨: 이미 떠 있음)
