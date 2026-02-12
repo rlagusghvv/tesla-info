@@ -17,6 +17,13 @@
 
 ## 2026-02-12
 
+### 13:59 KST — ops
+- TestFlight 업로드: Build 22 완료(Processing/배포 대기)
+- 변경: CarMode Navi 완전 풀스크린(지도 탭 시 크롬 표시/자동 숨김), 오버레이 크기 조정 버튼(-/+ S/M/L) 추가
+- 변경: FleetStatus 테스트 UI 프리즈 완화 + 12초 타임아웃 가드 (여전히 실패 케이스 원인 미확정)
+- 이슈: FleetStatus 테스트가 사용자 환경에서 여전히 실패(에러 메시지/스크린샷 필요)
+- 다음: HUD 자동 숨김 시간을 12~15초로 늘리고 인터랙션 발생 시 타이머 리셋, FleetStatus 실패 시 HTTP 상태/메시지 진단 강화, Turn-by-turn 고도화 착수
+
 ### 13:46 KST — ops
 - TestFlight 업로드: Build 22 (processing)
 - 변경: Navi 풀스크린(탭 시 크롬 표시 후 자동 숨김), 오버레이 크기 버튼(-/+ S/M/L), HUD 관련 UX 조정
