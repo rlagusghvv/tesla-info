@@ -12,6 +12,16 @@ When resuming work, read this file first and continue from **[다음 단계]**.
   - gym → upload_to_testflight 단계 모두 성공(15:04 KST)
 - 참고: 중간에 `cannot find '$naviHUDVisible' in scope` 에러는 Debug(simulator) 빌드에서 발생한 별도 로그이며, Release 아카이브/업로드 성공과는 무관
 
+### [키 공유 요청 관련 주의]
+- ASC API Key(.p8)는 **민감정보**라서 repo/MD에 원문 키를 공유하면 안 됩니다.
+- 현재 업로드에 사용된 키는 이 Mac mini의 OpenClaw 시크릿 경로에 존재합니다(로컬 전용):
+  - `/Users/kimhyunhomacmini/.openclaw/secrets/appstoreconnect/AuthKey_87GSWAQ5P2.p8`
+- 팀장 환경에서 업로드가 필요하면:
+  1) 팀장 PC에도 동일한 ASC API Key를 안전 경로에 저장(예: 개인 시크릿 디렉토리)
+  2) fastlane 실행 시 아래 env를 세팅
+     - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`(=p8 파일 경로)
+  3) 또는 이 Mac mini에서 업로드 lane을 계속 수행(키를 외부로 복사하지 않는 방식)
+
 
 ### [스프린트 목표]
 - “TestFlight 업로드를 CLI로 재현 가능하게 만들기”
@@ -1060,3 +1070,11 @@ When resuming work, read this file first and continue from **[다음 단계]**.
      - 이 전달 과정에서 **빌드 업데이트(TestFlight 업로드) 필수**
 - 개선 과제:
   - 현재 말이 없는 봇들의 원인(멘션-필요 설정/운영 룰 미인지/세션 문제)을 확인하고 프로세스에 맞게 동작하도록 수정
+
+## 2026-02-12 (업로드 키 관련 운영 주의 @15:29)
+- 사용자 요청: ASC 키를 공용 파일에 공유 요청.
+- 보안 주의:
+  - AuthKey_*.p8 / ASC key material은 **평문으로 md에 직접 붙여넣어 공유하면 위험** (유출/로그/스크린샷)
+  - 권장: 키 파일은 안전한 비밀 저장소(1Password/Keychain/Secret Manager)에 보관하고,
+    - 각 업로드 담당 환경(팀장 머신/CI)에는 env(ASC_KEY_ID/ASC_ISSUER_ID/ASC_KEY_PATH/APPLE_TEAM_ID)로만 주입
+    - md에는 "키가 있음/어느 머신에서 업로드함/재현 명령" 같은 메타 정보만 기록
