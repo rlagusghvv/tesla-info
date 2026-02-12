@@ -159,6 +159,7 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
             </head>
             <body>
               <div id="map"></div>
+              <div id="status">Loading Kakao map…</div>
               <script>
                 let map = null;
                 let carMarker = null;
@@ -166,11 +167,16 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
 
                 function ensureMap() {
                   if (map) return;
+                  if (!(window.kakao && kakao.maps && kakao.maps.Map)) {
+                    window.__setStatus('Kakao SDK not ready. Check: JS key is correct, domain tesla.splui.com is registered (Web platform), and the key is JavaScript key.');
+                    return;
+                  }
                   const center = new kakao.maps.LatLng(37.5665, 126.9780);
                   map = new kakao.maps.Map(document.getElementById('map'), {
                     center: center,
                     level: 6
                   });
+                  window.__setStatus('Kakao map loaded');
                 }
 
                 // Render base map ASAP even before native state push.
