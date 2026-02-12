@@ -1135,10 +1135,10 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 - "돌아가게" MVP 기능(테스트용):
   - 분석 UI: `GET /analyze` + `POST /api/analyze`
   - 추천 UI: `GET /recommend`
-    - 추천 리스트(현재 mock) + 체크박스 선택 UI
+    - 추천 생성: `POST /api/recommend` (MVP 룰 기반/결정적 정렬; 추후 실제 랭킹으로 교체)
+    - 추천 리스트(이제 mock 버튼이 아니라 API 호출) + 체크박스 선택 UI
     - 상단에 "선택 N개 업로드" 버튼
   - 배치 업로드 API: `POST /api/upload/batch`
-    - 기존: 한번에 처리 후 결과 반환
     - 개선: **jobId 반환 → 진행률/상품별 결과를 polling으로 표시** (업로드가 길어져도 UI가 멈추거나 전체 실패처럼 보이지 않게)
 - 배치 업로드 오류(대표 피드백) 대응 문서:
   - `docs/coupang_elephant_recommendation_fix_plan.md` (job/progress/idempotency 방향 포함)
