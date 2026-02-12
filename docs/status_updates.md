@@ -20,6 +20,12 @@
 
 ## 2026-02-12
 
+### 14:29 KST — ops
+- 사용자 리포트: FleetStatus(Test Fleet Status) 여전히 해결 안됨
+- 스크린샷 확인: JWT scopes에는 vehicle_cmds/vehicle_location/vehicle_charging_cmds 포함(스코프 누락 가능성 낮음)
+- 필요 정보: Test Fleet Status 눌렀을 때 뜨는 실제 에러 메시지(HTTP status/timeout/unauthorized 등) 캡쳐 필요
+- 다음 액션: FleetStatus 실패 시 화면에 HTTP status + 짧은 body 요약을 강제로 노출(Release에서도)하도록 진단 UX 강화, 실패 케이스별 가이드(키 페어링/VCP/베이스 URL) 분기
+
 ### 14:24 KST — ops
 - 사용자 피드백(Build 22): HUD가 상단에 너무 붙어 지저분해 보임(상단 여백/세이프에어리어 패딩 필요)
 - 사용자 피드백: 풀스크린 모드에서 차량 콘솔/계정(UI 진입) 접근이 사라진 것으로 보임 → ‘탭 시 HUD 표시’ 상태에서 Account/Console 진입 버튼/핸들 반드시 유지 필요
