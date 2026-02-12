@@ -10,17 +10,36 @@ struct KakaoNavigationPaneView: View {
     let vehicleSpeedKph: Double
     let wakeVehicle: (() -> Void)?
 
+    /// Controls whether overlays (HUD/search/results/route info) are visible.
+    @Binding var hudVisible: Bool
+
     @FocusState private var searchFocused: Bool
 
-    @State private var hudCollapsed: Bool = false
+    @State private var autoHideTask: Task<Void, Never>?
+
+    private let autoHideSeconds: Double = 14
 
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 mapCanvas
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        revealHUDAndScheduleAutoHide()
+                    }
 
-                if !hudCollapsed {
+                // Minimal turn-by-turn banner (keeps navigation feeling alive even when HUD is hidden)
+                if let next = model.nextGuide {
+                    turnByTurnBanner(next: next)
+                        .padding(.top, 10)
+                        .padding(.leading, 10)
+                        .padding(.trailing, 10)
+                        .safeAreaPadding(.top, 6)
+                        .transition(.opacity)
+                }
+
+                if hudVisible {
                     VStack(alignment: .leading, spacing: 8) {
                         header
 
@@ -37,15 +56,20 @@ struct KakaoNavigationPaneView: View {
                         }
                     }
                     .padding(12)
+                    .padding(.top, 6)
                     .frame(maxWidth: min(proxy.size.width * 0.64, 560), alignment: .topLeading)
+                    .safeAreaPadding(.top, 6)
+                    .transition(.opacity)
                 }
 
+                // Always-visible handle so users can bring HUD back.
                 Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                        hudCollapsed.toggle()
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        hudVisible = true
                     }
+                    revealHUDAndScheduleAutoHide()
                 } label: {
-                    Image(systemName: hudCollapsed ? "square.stack.3d.up" : "square.stack.3d.down.right")
+                    Image(systemName: hudVisible ? "eye" : "eye.slash")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(.white.opacity(0.92))
                         .frame(width: 40, height: 40)
@@ -53,14 +77,23 @@ struct KakaoNavigationPaneView: View {
                         .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .padding(12)
+                .padding(.top, 10)
+                .padding(.leading, 10)
+                .safeAreaPadding(.top, 6)
+                .opacity(hudVisible ? 0.55 : 1.0)
             }
+            .animation(.easeInOut(duration: 0.18), value: hudVisible)
         }
         .onAppear {
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
             if model.route == nil, model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 searchFocused = true
             }
+            revealHUDAndScheduleAutoHide()
+        }
+        .onDisappear {
+            autoHideTask?.cancel()
+            autoHideTask = nil
         }
         .onChange(of: vehicleLocation) { _, _ in
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
@@ -128,6 +161,7 @@ struct KakaoNavigationPaneView: View {
             }
 
             Button {
+                revealHUDAndScheduleAutoHide(extend: true)
                 model.clearRoute()
             } label: {
                 Label("Clear", systemImage: "xmark.circle.fill")
@@ -257,6 +291,7 @@ struct KakaoNavigationPaneView: View {
                 }
             } else if model.vehicleCoordinate == nil, let wakeVehicle {
                 Button {
+                    revealHUDAndScheduleAutoHide(extend: true)
                     wakeVehicle()
                 } label: {
                     Label("Wake vehicle", systemImage: "bolt.fill")
@@ -326,6 +361,7 @@ struct KakaoNavigationPaneView: View {
     }
 
     private func runSearch() async {
+        revealHUDAndScheduleAutoHide(extend: true)
         guard networkMonitor.isConnected else {
             model.errorMessage = "Offline. Connect to your iPhone hotspot and try again."
             return
@@ -336,6 +372,7 @@ struct KakaoNavigationPaneView: View {
     }
 
     private func startRoute(to place: KakaoPlace) async {
+        revealHUDAndScheduleAutoHide(extend: true)
         guard networkMonitor.isConnected else {
             model.errorMessage = "Offline. Connect to your iPhone hotspot and try again."
             return
@@ -361,6 +398,76 @@ struct KakaoNavigationPaneView: View {
             return "\(Int(min.rounded())) min"
         case (let km?, let min?):
             return String(format: "%.1f km · %d min", km, Int(min.rounded()))
+        }
+    }
+
+    private func turnByTurnBanner(next: KakaoGuide) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(next.guidance)
+                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text("다음 안내")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+
+            Spacer(minLength: 10)
+
+            if let meters = model.distanceToNextGuideMeters() {
+                Text("\(meters)m")
+                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.95))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.55))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        )
+        .onTapGesture {
+            // A tap on the banner should keep HUD visible a bit longer.
+            revealHUDAndScheduleAutoHide(extend: true)
+        }
+    }
+}
+
+private extension KakaoNavigationPaneView {
+    /// Shows HUD and schedules auto-hide (Option B) with a generous delay.
+    func revealHUDAndScheduleAutoHide(extend: Bool = false) {
+        // If user is actively typing in search, keep HUD visible.
+        if searchFocused {
+            if !hudVisible { hudVisible = true }
+            autoHideTask?.cancel()
+            autoHideTask = nil
+            return
+        }
+
+        if !hudVisible {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                hudVisible = true
+            }
+        }
+
+        // Reset timer on any interaction.
+        autoHideTask?.cancel()
+        autoHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(autoHideSeconds * 1_000_000_000))
+            if Task.isCancelled { return }
+            if searchFocused { return }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                hudVisible = false
+            }
+        }
+
+        if extend {
+            // No-op: extend is handled by cancelling and rescheduling.
         }
     }
 }

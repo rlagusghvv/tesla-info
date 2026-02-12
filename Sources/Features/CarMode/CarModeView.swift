@@ -201,147 +201,151 @@ struct CarModeView: View {
         }
     }
 
+    @ViewBuilder
     private var centerPanel: some View {
-        // Fullscreen Navi: hide chrome unless explicitly shown.
         if viewModel.centerMode == .navi, !showChromeInNavi {
-            return AnyView(
-                ZStack(alignment: .bottomTrailing) {
-                    KakaoNavigationPaneView(
-                        model: naviModel,
-                        vehicleLocation: viewModel.snapshot.vehicle.location,
-                        vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
-                        wakeVehicle: {
-                            viewModel.sendCommand("wake_up")
-                            Task {
-                                for attempt in 0..<6 {
-                                    let waitSeconds = attempt == 0 ? 5 : 4
-                                    try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
-                                    await viewModel.refresh()
-                                    if viewModel.snapshot.vehicle.location.isValid {
-                                        break
-                                    }
-                                }
-                            }
+            fullscreenNaviPanel
+        } else {
+            regularCenterPanel
+        }
+    }
+
+    private var fullscreenNaviPanel: some View {
+        ZStack(alignment: .bottomTrailing) {
+            naviPane
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    toggleChromeInNavi()
+                }
+
+            if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
+                DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
+                    .frame(width: 360, height: 220)
+                    .padding(14)
+            }
+
+            // Keep access to Account / Controls even in fullscreen mode.
+            VStack(spacing: 10) {
+                headerIconButton(systemImage: "hand.tap") {
+                    toggleChromeInNavi()
+                }
+                headerIconButton(systemImage: "person.crop.circle") {
+                    showSetupSheet = true
+                }
+            }
+            .padding(12)
+            .safeAreaPadding(.top, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var naviPane: some View {
+        KakaoNavigationPaneView(
+            model: naviModel,
+            vehicleLocation: viewModel.snapshot.vehicle.location,
+            vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
+            wakeVehicle: {
+                viewModel.sendCommand("wake_up")
+                Task {
+                    for attempt in 0..<6 {
+                        let waitSeconds = attempt == 0 ? 5 : 4
+                        try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
+                        await viewModel.refresh()
+                        if viewModel.snapshot.vehicle.location.isValid {
+                            break
                         }
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    }
+                }
+            },
+            hudVisible: $naviHUDVisible
+        )
+    }
+
+    private var regularCenterPanel: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                CenterModeSegmentedControl(selection: $viewModel.centerMode)
+                    .frame(maxWidth: .infinity)
+                    .layoutPriority(1)
+
+                headerIconButton(systemImage: "arrow.clockwise") {
+                    Task { await viewModel.refresh() }
+                }
+                .disabled(!networkMonitor.isConnected)
+
+                if viewModel.centerMode == .navi {
+                    headerIconButton(systemImage: showMediaOverlayInNavi ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle") {
+                        showMediaOverlayInNavi.toggle()
+                    }
+
+                    headerIconButton(systemImage: showChromeInNavi ? "hand.tap.fill" : "hand.tap") {
                         toggleChromeInNavi()
                     }
-
-                    if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
-                        DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
-                            .frame(width: 360, height: 220)
-                            .padding(14)
-                    }
-                }
-                .ignoresSafeArea()
-            )
-        }
-
-        return AnyView(
-            VStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    CenterModeSegmentedControl(selection: $viewModel.centerMode)
-                        .frame(maxWidth: .infinity)
-                        .layoutPriority(1)
-
-                    headerIconButton(systemImage: "arrow.clockwise") {
-                        Task { await viewModel.refresh() }
-                    }
-                    .disabled(!networkMonitor.isConnected)
-
-                    if viewModel.centerMode == .navi {
-                        headerIconButton(systemImage: showMediaOverlayInNavi ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle") {
-                            showMediaOverlayInNavi.toggle()
-                        }
-
-                        headerIconButton(systemImage: showChromeInNavi ? "hand.tap.fill" : "hand.tap") {
-                            toggleChromeInNavi()
-                        }
-                    }
-
-                    headerIconButton(systemImage: "person.crop.circle") {
-                        showSetupSheet = true
-                    }
                 }
 
-                if !networkMonitor.isConnected {
-                    HStack(spacing: 10) {
-                        Image(systemName: "wifi.slash")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.9))
-                        Text("Offline. Waiting for hotspot internet.")
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.85))
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.white.opacity(0.08))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                            )
-                    )
+                headerIconButton(systemImage: "person.crop.circle") {
+                    showSetupSheet = true
                 }
-
-                Group {
-                    switch viewModel.centerMode {
-                    case .navi:
-                        ZStack(alignment: .bottomTrailing) {
-                            KakaoNavigationPaneView(
-                                model: naviModel,
-                                vehicleLocation: viewModel.snapshot.vehicle.location,
-                                vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
-                                wakeVehicle: {
-                                    viewModel.sendCommand("wake_up")
-                                    Task {
-                                        for attempt in 0..<6 {
-                                            let waitSeconds = attempt == 0 ? 5 : 4
-                                            try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
-                                            await viewModel.refresh()
-                                            if viewModel.snapshot.vehicle.location.isValid {
-                                                break
-                                            }
-                                        }
-                                    }
-                                }
-                            )
-
-                            if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
-                                DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
-                                    .frame(width: 360, height: 220)
-                                    .padding(14)
-                            }
-                        }
-                    case .media:
-                        mediaPane
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                HStack(spacing: 8) {
-                    Text("Source: \(viewModel.snapshot.source)")
-                        .foregroundStyle(.white.opacity(0.75))
-                    Text("Updated: \(viewModel.snapshot.updatedAt)")
-                        .foregroundStyle(.white.opacity(0.75))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-                .font(.system(size: 13, weight: .medium, design: .rounded))
             }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                    )
-            )
+
+            if !networkMonitor.isConnected {
+                HStack(spacing: 10) {
+                    Image(systemName: "wifi.slash")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Text("Offline. Waiting for hotspot internet.")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+                )
+            }
+
+            Group {
+                switch viewModel.centerMode {
+                case .navi:
+                    ZStack(alignment: .bottomTrailing) {
+                        naviPane
+                        if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
+                            DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
+                                .frame(width: 360, height: 220)
+                                .padding(14)
+                        }
+                    }
+                case .media:
+                    mediaPane
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            HStack(spacing: 8) {
+                Text("Source: \(viewModel.snapshot.source)")
+                    .foregroundStyle(.white.opacity(0.75))
+                Text("Updated: \(viewModel.snapshot.updatedAt)")
+                    .foregroundStyle(.white.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+            .font(.system(size: 13, weight: .medium, design: .rounded))
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
         )
     }
 
