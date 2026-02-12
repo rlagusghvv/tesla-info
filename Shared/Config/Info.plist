@@ -32,11 +32,9 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>15</string>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIRequiresFullScreen</key>
-	<true/>
+	<string>18</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -46,6 +44,10 @@
 	<string>로컬 네트워크의 텔레메트리 서버(Mac 백엔드)에 연결해 차량 정보를 표시하기 위해 필요합니다.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
