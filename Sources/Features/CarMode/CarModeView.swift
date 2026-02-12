@@ -113,7 +113,6 @@ struct CarModeView: View {
     @StateObject private var viewModel = CarModeViewModel()
     @StateObject private var naviModel = KakaoNavigationViewModel()
     @StateObject private var deviceLocationTracker = DeviceLocationTracker()
-    @State private var showSetupSheet = false
     @State private var showMediaOverlayInNavi = false
     @State private var naviHUDVisible: Bool = true
     @State private var showChromeInNavi: Bool = false
@@ -182,7 +181,7 @@ struct CarModeView: View {
                             .foregroundStyle(.white.opacity(0.8))
 
                         Button {
-                            showSetupSheet = true
+                            router.showGuide()
                         } label: {
                             Label("Go to Tesla Account", systemImage: "person.crop.circle")
                         }
@@ -222,19 +221,6 @@ struct CarModeView: View {
                 break
             }
         }
-        .onChange(of: showSetupSheet) { _, presented in
-            // Pause polling while editing account/setup fields to avoid UI hitches on older iPads.
-            if presented {
-                viewModel.stop()
-            } else if scenePhase == .active {
-                viewModel.start()
-            }
-        }
-        .sheet(isPresented: $showSetupSheet) {
-            ConnectionGuideView()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-        }
     }
 
     private var content: some View {
@@ -242,18 +228,10 @@ struct CarModeView: View {
             let sideHeight = min(340, max(210, proxy.size.height * 0.33))
 
             VStack(spacing: 10) {
-                if showSetupSheet {
-                    suspendedCenterPanel
-                } else {
-                    regularCenterPanel
-                }
+                regularCenterPanel
 
                 Group {
-                    if showSetupSheet {
-                        suspendedSidePanel
-                    } else {
-                        sidePanel
-                    }
+                    sidePanel
                 }
                 .frame(height: sideHeight)
             }
@@ -360,7 +338,7 @@ struct CarModeView: View {
                     toggleChromeInNavi()
                 }
                 headerIconButton(systemImage: "person.crop.circle") {
-                    showSetupSheet = true
+                    router.showGuide()
                 }
             }
             .padding(.trailing, 12)
@@ -423,7 +401,7 @@ struct CarModeView: View {
                 }
 
                 headerIconButton(systemImage: "person.crop.circle") {
-                    showSetupSheet = true
+                    router.showGuide()
                 }
             }
 
@@ -1022,7 +1000,7 @@ struct CarModeView: View {
             controlButton(title: "A/C OFF", symbol: "snowflake", command: "auto_conditioning_stop", variant: .compact)
             controlButton(title: "Wake", symbol: "bolt.fill", command: "wake_up", variant: .compact)
             Button {
-                showSetupSheet = true
+                router.showGuide()
             } label: {
                 Label("Account", systemImage: "person.crop.circle")
             }

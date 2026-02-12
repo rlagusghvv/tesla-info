@@ -22,6 +22,13 @@ struct ConnectionGuideView: View {
     @State private var showBackendToken = false
     @State private var isTestingBackend = false
     @State private var isDetectingBackend = false
+    @State private var teslaClientIdText: String = ""
+    @State private var teslaClientSecretText: String = ""
+    @State private var teslaRedirectURIText: String = TeslaConstants.defaultRedirectURI
+    @State private var teslaAudienceText: String = TeslaConstants.defaultAudience
+    @State private var teslaFleetApiBaseText: String = TeslaConstants.defaultFleetApiBase
+    @State private var teslaManualCodeText: String = ""
+    @State private var teslaManualStateText: String = ""
 
     private let quickBackendCandidates: [String] = [
         "https://tesla.splui.com",
@@ -113,6 +120,7 @@ struct ConnectionGuideView: View {
             selectedTelemetrySource = AppConfig.telemetrySource
             backendURLText = AppConfig.backendBaseURLString
             backendAPITokenText = AppConfig.backendAPIToken
+            syncTeslaDraftFromStore()
         }
     }
 
@@ -256,19 +264,19 @@ struct ConnectionGuideView: View {
                     .foregroundStyle(.secondary)
             }
 
-            TextField("Client ID", text: $teslaAuth.clientId)
+            TextField("Client ID", text: $teslaClientIdText)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
-            SecureField("Client Secret", text: $teslaAuth.clientSecret)
+            SecureField("Client Secret", text: $teslaClientSecretText)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
-            TextField("Redirect URI", text: $teslaAuth.redirectURI)
+            TextField("Redirect URI", text: $teslaRedirectURIText)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .textInputAutocapitalization(.never)
@@ -277,14 +285,14 @@ struct ConnectionGuideView: View {
 
             DisclosureGroup("Advanced (Audience / Fleet API Base)", isExpanded: $showAdvancedTesla) {
                 VStack(alignment: .leading, spacing: 10) {
-                    TextField("Audience", text: $teslaAuth.audience)
+                    TextField("Audience", text: $teslaAudienceText)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
 
-                    TextField("Fleet API Base", text: $teslaAuth.fleetApiBase)
+                    TextField("Fleet API Base", text: $teslaFleetApiBaseText)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .textInputAutocapitalization(.never)
@@ -303,19 +311,20 @@ struct ConnectionGuideView: View {
 
             DisclosureGroup("Manual Finish (if Open App fails)", isExpanded: $showManualLogin) {
                 VStack(alignment: .leading, spacing: 10) {
-                    TextField("OAuth Code", text: $teslaAuth.manualCode)
+                    TextField("OAuth Code", text: $teslaManualCodeText)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
 
-                    TextField("State", text: $teslaAuth.manualState)
+                    TextField("State", text: $teslaManualStateText)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
 
                     Button(teslaAuth.isBusy ? "Working..." : "Exchange Code") {
+                        syncTeslaDraftToStore(includeManual: true)
                         teslaAuth.finishLoginManually()
                     }
                     .disabled(teslaAuth.isBusy)
@@ -330,11 +339,13 @@ struct ConnectionGuideView: View {
             VStack(spacing: 10) {
                 HStack(spacing: 10) {
                     Button("Save") {
+                        syncTeslaDraftToStore()
                         teslaAuth.saveConfig()
                     }
                     .buttonStyle(SecondaryCarButtonStyle())
 
                     Button(teslaAuth.isBusy ? "Working..." : "Connect") {
+                        syncTeslaDraftToStore()
                         teslaAuth.saveConfig()
                         guard let url = teslaAuth.makeAuthorizeURL() else { return }
                         openURL(url)
@@ -479,6 +490,28 @@ struct ConnectionGuideView: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
         )
+    }
+
+    private func syncTeslaDraftFromStore() {
+        teslaClientIdText = teslaAuth.clientId
+        teslaClientSecretText = teslaAuth.clientSecret
+        teslaRedirectURIText = teslaAuth.redirectURI
+        teslaAudienceText = teslaAuth.audience
+        teslaFleetApiBaseText = teslaAuth.fleetApiBase
+        teslaManualCodeText = teslaAuth.manualCode
+        teslaManualStateText = teslaAuth.manualState
+    }
+
+    private func syncTeslaDraftToStore(includeManual: Bool = false) {
+        teslaAuth.clientId = teslaClientIdText
+        teslaAuth.clientSecret = teslaClientSecretText
+        teslaAuth.redirectURI = teslaRedirectURIText
+        teslaAuth.audience = teslaAudienceText
+        teslaAuth.fleetApiBase = teslaFleetApiBaseText
+        if includeManual {
+            teslaAuth.manualCode = teslaManualCodeText
+            teslaAuth.manualState = teslaManualStateText
+        }
     }
 
     private func saveBackendURL() {
