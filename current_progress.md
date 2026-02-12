@@ -5,6 +5,14 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 
 ## 2026-02-12
 
+## 2026-02-13 (00:03 진행상태)
+- 메인 `https://app.splui.com/app/` 가 Next(basePath=/app)로 서빙되는 상태에서
+  내부 링크가 루트(/analyze 등)로 박혀 404/비정상처럼 보이던 문제를 수정 진행 중.
+- 반영 완료된 커밋(서버 pull + 재시작 필요):
+  - (링크/basePath 대응) `039a916` next/link 전환
+  - (404 방지) `c4ebe04` legacy 경로들 페이지 스켈레톤 복구
+- 다음 액션: 서버 머신에서 pull/restart 후 404 경로가 실제로 살아나는지 검증 → 이후 각 페이지에 기능 이식
+
 ### [쿠팡 코끼리 - 문제 파악]
 - 초기에는 repo(`tesla-info/_repo`)에서 "쿠팡/코끼리/coupang/elephant" 키워드 및 관련 파일명 검색 결과 0건이었음.
 - 이후 대표 레퍼런스(https://www.coupilot.net/) 제공됨 → 동일본 제작 착수.
