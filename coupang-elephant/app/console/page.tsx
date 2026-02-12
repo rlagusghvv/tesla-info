@@ -8,8 +8,8 @@ export default function ConsoleEmbedPage() {
             <span className="text-sm">COUPILOT</span>
           </div>
           <nav className="hidden items-center gap-5 pl-6 text-sm font-semibold text-neutral-700 md:flex">
-            <a className="hover:text-neutral-950" href="/app/">홈</a>
-            <a className="hover:text-neutral-950" href="/app/console">콘솔</a>
+            <a className="hover:text-neutral-950" href="/">홈</a>
+            <a className="hover:text-neutral-950" href="/console">콘솔</a>
           </nav>
           <div className="ml-auto text-sm font-semibold text-neutral-600">Console (Legacy embed)</div>
         </div>
