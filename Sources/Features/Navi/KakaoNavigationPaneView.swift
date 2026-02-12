@@ -14,6 +14,8 @@ struct KakaoNavigationPaneView: View {
     @Binding var hudVisible: Bool
 
     @FocusState private var searchFocused: Bool
+    @State private var topPanelOffset: CGSize = .zero
+    @State private var topPanelAnchorOffset: CGSize = .zero
 
     @State private var autoHideTask: Task<Void, Never>?
 
@@ -21,8 +23,12 @@ struct KakaoNavigationPaneView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let panelWidth = min(proxy.size.width * 0.64, 560)
+            let topInset: CGFloat = 22
+            let resultsTopPadding = topInset + topPanelEstimatedHeight + topPanelOffset.height + 8
+
             ZStack(alignment: .topLeading) {
-                mapCanvas
+                mapCanvas(resultsTopPadding: resultsTopPadding, topInset: topInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -56,8 +62,30 @@ struct KakaoNavigationPaneView: View {
                         }
                     }
                     .padding(12)
-                    .padding(.top, 6)
-                    .frame(maxWidth: min(proxy.size.width * 0.64, 560), alignment: .topLeading)
+                    .frame(maxWidth: panelWidth, alignment: .topLeading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                    )
+                    .offset(
+                        x: topPanelOffset.width,
+                        y: topInset + topPanelOffset.height
+                    )
+                    .gesture(
+                        DragGesture(minimumDistance: 2, coordinateSpace: .local)
+                            .onChanged { value in
+                                topPanelOffset = clampedTopPanelOffset(
+                                    proposalX: topPanelAnchorOffset.width + value.translation.width,
+                                    proposalY: topPanelAnchorOffset.height + value.translation.height,
+                                    containerSize: proxy.size,
+                                    panelWidth: panelWidth
+                                )
+                            }
+                            .onEnded { _ in
+                                topPanelAnchorOffset = topPanelOffset
+                            }
+                    )
                     .safeAreaPadding(.top, 6)
                     .transition(.opacity)
                 }
@@ -77,7 +105,7 @@ struct KakaoNavigationPaneView: View {
                         .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 10)
+                .padding(.top, topInset + 4)
                 .padding(.leading, 10)
                 .safeAreaPadding(.top, 6)
                 .opacity(hudVisible ? 0.55 : 1.0)
@@ -89,6 +117,8 @@ struct KakaoNavigationPaneView: View {
             if model.route == nil, model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 searchFocused = true
             }
+            topPanelOffset = .zero
+            topPanelAnchorOffset = .zero
             revealHUDAndScheduleAutoHide()
         }
         .onDisappear {
@@ -103,7 +133,7 @@ struct KakaoNavigationPaneView: View {
         }
     }
 
-    private var mapCanvas: some View {
+    private func mapCanvas(resultsTopPadding: CGFloat, topInset: CGFloat) -> some View {
         let jsKey = kakaoConfig.javaScriptKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return Group {
@@ -111,12 +141,17 @@ struct KakaoNavigationPaneView: View {
                 KakaoWebRouteMapView(
                     javaScriptKey: jsKey,
                     vehicleCoordinate: model.vehicleCoordinate,
-                    route: model.route
+                    vehicleSpeedKph: vehicleSpeedKph,
+                    route: model.route,
+                    followEnabled: model.isFollowModeEnabled,
+                    routeRevision: model.routeRevision
                 )
             } else {
                 KakaoRouteMapView(
                     vehicleCoordinate: model.vehicleCoordinate,
-                    route: model.route
+                    route: model.route,
+                    followEnabled: model.isFollowModeEnabled,
+                    routeRevision: model.routeRevision
                 )
             }
         }
@@ -124,8 +159,29 @@ struct KakaoNavigationPaneView: View {
             if !model.results.isEmpty, model.route == nil {
                 resultsOverlay
                     .padding(12)
-                    .padding(.top, 170)
+                    .padding(.top, max(topInset, resultsTopPadding))
             }
+        }
+        .overlay(alignment: .topTrailing) {
+            followPill
+                .padding(.top, topInset + 10)
+                .padding(.trailing, 12)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            HStack(spacing: 6) {
+                Image(systemName: "hand.draw.fill")
+                    .font(.system(size: 11, weight: .bold))
+                Text("Drag cards")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(.white.opacity(0.82))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.black.opacity(0.48))
+            )
+            .padding(10)
         }
         .overlay(alignment: .bottomLeading) {
             Text(jsKey.isEmpty ? "Map: Apple fallback (set Kakao JS key in Account)" : "Map: Kakao")
@@ -140,6 +196,19 @@ struct KakaoNavigationPaneView: View {
                 .padding(10)
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var topPanelEstimatedHeight: CGFloat {
+        var height: CGFloat = 220
+        if kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            height += 22
+        } else {
+            height += 28
+        }
+        if model.route == nil, model.results.isEmpty {
+            height += 48
+        }
+        return height
     }
 
     private var header: some View {
@@ -160,6 +229,10 @@ struct KakaoNavigationPaneView: View {
                     .tint(.white)
             }
 
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white.opacity(0.72))
+
             Button {
                 revealHUDAndScheduleAutoHide(extend: true)
                 model.clearRoute()
@@ -175,6 +248,31 @@ struct KakaoNavigationPaneView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(panelBackground())
+    }
+
+    private var followPill: some View {
+        Button {
+            model.isFollowModeEnabled.toggle()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: model.isFollowModeEnabled ? "location.fill" : "location.slash")
+                    .font(.system(size: 12, weight: .bold))
+                Text(model.isFollowModeEnabled ? "Follow ON" : "Follow OFF")
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(model.isFollowModeEnabled ? Color.blue.opacity(0.86) : Color.black.opacity(0.58))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var missingKeyCard: some View {
@@ -436,10 +534,23 @@ struct KakaoNavigationPaneView: View {
             revealHUDAndScheduleAutoHide(extend: true)
         }
     }
+
+    private func clampedTopPanelOffset(
+        proposalX: CGFloat,
+        proposalY: CGFloat,
+        containerSize: CGSize,
+        panelWidth: CGFloat
+    ) -> CGSize {
+        let safeHorizontal = max(0, containerSize.width - panelWidth - 16)
+        let safeVertical = max(0, containerSize.height - topPanelEstimatedHeight - 16)
+        let x = min(max(0, proposalX), safeHorizontal)
+        let y = min(max(0, proposalY), safeVertical)
+        return CGSize(width: x, height: y)
+    }
 }
 
 private extension KakaoNavigationPaneView {
-    /// Shows HUD and schedules auto-hide (Option B) with a generous delay.
+    /// Shows HUD and schedules auto-hide with a generous delay.
     func revealHUDAndScheduleAutoHide(extend: Bool = false) {
         // If user is actively typing in search, keep HUD visible.
         if searchFocused {

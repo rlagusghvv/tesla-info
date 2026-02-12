@@ -9,9 +9,11 @@ final class KakaoNavigationViewModel: ObservableObject {
     @Published private(set) var isSearching = false
     @Published private(set) var isRouting = false
     @Published var errorMessage: String?
+    @Published var isFollowModeEnabled: Bool = true
 
     @Published private(set) var vehicleCoordinate: CLLocationCoordinate2D?
     @Published private(set) var vehicleSpeedKph: Double = 0
+    @Published private(set) var routeRevision: Int = 0
 
     private var cachedKey: String = ""
     private var cachedClient: KakaoAPIClient?
@@ -28,6 +30,7 @@ final class KakaoNavigationViewModel: ObservableObject {
 
     func clearRoute() {
         route = nil
+        routeRevision += 1
         errorMessage = nil
     }
 
@@ -59,6 +62,8 @@ final class KakaoNavigationViewModel: ObservableObject {
         do {
             let r = try await client(restAPIKey: restAPIKey).fetchRoute(origin: origin, destination: destination)
             route = r
+            routeRevision += 1
+            isFollowModeEnabled = true
         } catch {
             route = nil
             errorMessage = error.localizedDescription

@@ -25,47 +25,62 @@ struct CarModeView: View {
     @State private var autoHideTask: Task<Void, Never>?
 
     @StateObject private var mediaWebViewStore = WebViewStore()
+    @State private var mediaOverlaySize: CGSize = .zero
+    @State private var mediaOverlayOrigin: CGPoint = .zero
+    @State private var mediaOverlayDragAnchor: CGPoint = .zero
+    @State private var mediaOverlayResizeAnchor: CGSize = .zero
+    @State private var hasInitializedMediaOverlay = false
+
+    private let mediaToolbarHeight: CGFloat = 64
+    private let mediaMinSize = CGSize(width: 330, height: 220)
+    private let regularTopInset: CGFloat = 22
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color.black, Color(red: 0.05, green: 0.09, blue: 0.16)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+        GeometryReader { root in
+            let isFullscreenNavi = viewModel.centerMode == .navi && !showChromeInNavi
 
-            content
-                .padding(viewModel.centerMode == .navi && !showChromeInNavi ? 0 : 16)
-
-            if !teslaAuth.isSignedIn {
-                VStack(spacing: 14) {
-                    Text("Tesla login required")
-                        .font(.system(size: 22, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Text("Exit Car Mode to connect your Tesla account.")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.8))
-
-                    Button {
-                        showSetupSheet = true
-                    } label: {
-                        Label("Go to Tesla Account", systemImage: "person.crop.circle")
-                    }
-                    .buttonStyle(SecondaryCarButtonStyle())
-                    .frame(height: 70)
-                }
-                .padding(18)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.white.opacity(0.10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(Color.white.opacity(0.14), lineWidth: 1)
-                        )
+            ZStack {
+                LinearGradient(
+                    colors: [Color.black, Color(red: 0.05, green: 0.09, blue: 0.16)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
-                .padding(24)
+                .ignoresSafeArea()
+
+                content
+                    .padding(.horizontal, isFullscreenNavi ? 0 : 16)
+                    .padding(.top, isFullscreenNavi ? 0 : max(regularTopInset, root.safeAreaInsets.top + 14))
+                    .padding(.bottom, isFullscreenNavi ? 0 : max(12, root.safeAreaInsets.bottom + 8))
+
+                if !teslaAuth.isSignedIn {
+                    VStack(spacing: 14) {
+                        Text("Tesla login required")
+                            .font(.system(size: 22, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.white)
+
+                        Text("Exit Car Mode to connect your Tesla account.")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.8))
+
+                        Button {
+                            showSetupSheet = true
+                        } label: {
+                            Label("Go to Tesla Account", systemImage: "person.crop.circle")
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle())
+                        .frame(height: 70)
+                    }
+                    .padding(18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.10))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                            )
+                    )
+                    .padding(24)
+                }
             }
         }
         .onAppear {
@@ -73,6 +88,8 @@ struct CarModeView: View {
         }
         .onDisappear {
             viewModel.stop()
+            autoHideTask?.cancel()
+            autoHideTask = nil
         }
         .onChange(of: scenePhase) { _, next in
             switch next {
@@ -434,6 +451,7 @@ struct CarModeView: View {
         private let presetS = CGSize(width: 320, height: 200)
         private let presetM = CGSize(width: 420, height: 260)
         private let presetL = CGSize(width: 560, height: 340)
+        private let presetFull = CGSize(width: 860, height: 620)
 
         var body: some View {
             VStack(spacing: 0) {
@@ -443,6 +461,18 @@ struct CarModeView: View {
                         .foregroundStyle(.white.opacity(0.9))
 
                     Spacer()
+
+                    Button("-") { scale(by: 0.90) }
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.white.opacity(0.10)))
+
+                    Button("+") { scale(by: 1.10) }
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.white.opacity(0.10)))
 
                     Button("S") { applyPreset(presetS) }
                         .font(.system(size: 12, weight: .black, design: .rounded))
@@ -461,6 +491,13 @@ struct CarModeView: View {
                         .foregroundStyle(.white.opacity(0.9))
                         .frame(width: 26, height: 26)
                         .background(Circle().fill(Color.white.opacity(0.10)))
+
+                    Button("Full") { applyPreset(presetFull) }
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .frame(height: 26)
+                        .padding(.horizontal, 8)
+                        .background(Capsule(style: .continuous).fill(Color.white.opacity(0.10)))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
@@ -520,35 +557,79 @@ struct CarModeView: View {
                 size = clampSize(preset)
             }
         }
+
+        private func scale(by factor: CGFloat) {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+                size = clampSize(CGSize(width: size.width * factor, height: size.height * factor))
+            }
+        }
     }
 
     private var mediaPane: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Button("YouTube") {
-                    viewModel.mediaURLText = "https://m.youtube.com"
-                }
-                .buttonStyle(SecondaryCarButtonStyle(fontSize: 20, height: 64, cornerRadius: 18))
+        GeometryReader { proxy in
+            let containerSize = proxy.size
 
-                Button("CHZZK") {
-                    viewModel.mediaURLText = "https://chzzk.naver.com"
-                }
-                .buttonStyle(SecondaryCarButtonStyle(fontSize: 20, height: 64, cornerRadius: 18))
-            }
-            .frame(height: 66)
-
-            if let mediaURL = viewModel.mediaURL {
-                InAppBrowserView(url: mediaURL, persistentWebView: mediaWebViewStore.webView)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            } else {
-                Text("Invalid media URL")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+                    .overlay(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color.white.opacity(0.08))
+                            .stroke(Color.white.opacity(0.10), lineWidth: 1)
                     )
+
+                HStack(spacing: 8) {
+                    Button("YouTube") {
+                        viewModel.mediaURLText = "https://m.youtube.com"
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 48, cornerRadius: 12))
+
+                    Button("CHZZK") {
+                        viewModel.mediaURLText = "https://chzzk.naver.com"
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 48, cornerRadius: 12))
+
+                    Spacer(minLength: 8)
+
+                    Button("-") {
+                        scaleMediaOverlay(by: 0.90, in: containerSize)
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 42, cornerRadius: 12))
+                    .frame(width: 42)
+
+                    Button("+") {
+                        scaleMediaOverlay(by: 1.10, in: containerSize)
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 42, cornerRadius: 12))
+                    .frame(width: 42)
+
+                    ForEach(MediaOverlayPreset.allCases, id: \.self) { preset in
+                        Button(preset.label) {
+                            applyMediaPreset(preset, in: containerSize)
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle(fontSize: 14, height: 42, cornerRadius: 10))
+                        .frame(width: preset == .full ? 56 : 44)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .frame(height: mediaToolbarHeight)
+
+                if let mediaURL = viewModel.mediaURL {
+                    mediaWindow(url: mediaURL, containerSize: containerSize)
+                } else {
+                    Text("Invalid media URL")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .onAppear {
+                initializeMediaOverlayIfNeeded(in: containerSize)
+            }
+            .onChange(of: containerSize) { _, next in
+                initializeMediaOverlayIfNeeded(in: next)
+                clampMediaOverlay(in: next)
             }
         }
     }
@@ -607,6 +688,18 @@ struct CarModeView: View {
                 }
                 .buttonStyle(SecondaryCarButtonStyle(fontSize: 17, height: 54, cornerRadius: 14))
 
+                if viewModel.isCommandRunning {
+                    card {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .tint(.white)
+                            Text("Sending command...")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                    }
+                }
+
                 if let commandMessage = viewModel.commandMessage {
                     card {
                         Text(commandMessage)
@@ -616,6 +709,195 @@ struct CarModeView: View {
                 }
 
                 Spacer(minLength: 0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func mediaWindow(url: URL, containerSize: CGSize) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.9))
+
+                Text("Media Overlay")
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+
+                Spacer(minLength: 0)
+
+                Text("\(Int(mediaOverlaySize.width.rounded())) x \(Int(mediaOverlaySize.height.rounded()))")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(Color.black.opacity(0.30))
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { value in
+                        let proposal = CGPoint(
+                            x: mediaOverlayDragAnchor.x + value.translation.width,
+                            y: mediaOverlayDragAnchor.y + value.translation.height
+                        )
+                        mediaOverlayOrigin = clampedMediaOrigin(proposal, size: mediaOverlaySize, container: containerSize)
+                    }
+                    .onEnded { _ in
+                        mediaOverlayDragAnchor = mediaOverlayOrigin
+                    }
+            )
+
+            InAppBrowserView(url: url, persistentWebView: mediaWebViewStore.webView)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: mediaOverlaySize.width, height: mediaOverlaySize.height)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black.opacity(0.40))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+        .overlay(alignment: .bottomTrailing) {
+            Circle()
+                .fill(Color.white.opacity(0.90))
+                .frame(width: 26, height: 26)
+                .overlay(
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundStyle(.black.opacity(0.85))
+                )
+                .padding(8)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 2)
+                        .onChanged { value in
+                            let next = CGSize(
+                                width: mediaOverlayResizeAnchor.width + value.translation.width,
+                                height: mediaOverlayResizeAnchor.height + value.translation.height
+                            )
+                            mediaOverlaySize = clampedMediaSize(next, container: containerSize)
+                            mediaOverlayOrigin = clampedMediaOrigin(mediaOverlayOrigin, size: mediaOverlaySize, container: containerSize)
+                        }
+                        .onEnded { _ in
+                            mediaOverlayResizeAnchor = mediaOverlaySize
+                            mediaOverlayDragAnchor = mediaOverlayOrigin
+                        }
+                )
+        }
+        .position(
+            x: mediaOverlayOrigin.x + (mediaOverlaySize.width / 2.0),
+            y: mediaOverlayOrigin.y + (mediaOverlaySize.height / 2.0)
+        )
+    }
+
+    private func initializeMediaOverlayIfNeeded(in container: CGSize) {
+        guard container.width > 0, container.height > 0 else { return }
+        guard !hasInitializedMediaOverlay else { return }
+
+        let initial = clampedMediaSize(
+            CGSize(width: container.width * 0.62, height: container.height * 0.58),
+            container: container
+        )
+        let origin = CGPoint(
+            x: max(10, (container.width - initial.width) / 2.0),
+            y: mediaToolbarHeight + 10
+        )
+
+        mediaOverlaySize = initial
+        mediaOverlayOrigin = clampedMediaOrigin(origin, size: initial, container: container)
+        mediaOverlayDragAnchor = mediaOverlayOrigin
+        mediaOverlayResizeAnchor = mediaOverlaySize
+        hasInitializedMediaOverlay = true
+    }
+
+    private func clampMediaOverlay(in container: CGSize) {
+        guard hasInitializedMediaOverlay else { return }
+        mediaOverlaySize = clampedMediaSize(mediaOverlaySize, container: container)
+        mediaOverlayOrigin = clampedMediaOrigin(mediaOverlayOrigin, size: mediaOverlaySize, container: container)
+        mediaOverlayDragAnchor = mediaOverlayOrigin
+        mediaOverlayResizeAnchor = mediaOverlaySize
+    }
+
+    private func scaleMediaOverlay(by factor: CGFloat, in container: CGSize) {
+        guard hasInitializedMediaOverlay else {
+            initializeMediaOverlayIfNeeded(in: container)
+            return
+        }
+        let proposal = CGSize(
+            width: mediaOverlaySize.width * factor,
+            height: mediaOverlaySize.height * factor
+        )
+        mediaOverlaySize = clampedMediaSize(proposal, container: container)
+        mediaOverlayOrigin = clampedMediaOrigin(mediaOverlayOrigin, size: mediaOverlaySize, container: container)
+        mediaOverlayResizeAnchor = mediaOverlaySize
+        mediaOverlayDragAnchor = mediaOverlayOrigin
+    }
+
+    private func applyMediaPreset(_ preset: MediaOverlayPreset, in container: CGSize) {
+        guard container.width > 0, container.height > 0 else { return }
+        let target: CGSize
+        switch preset {
+        case .small:
+            target = CGSize(width: container.width * 0.44, height: container.height * 0.34)
+        case .medium:
+            target = CGSize(width: container.width * 0.58, height: container.height * 0.48)
+        case .large:
+            target = CGSize(width: container.width * 0.74, height: container.height * 0.65)
+        case .full:
+            target = CGSize(width: container.width * 0.95, height: container.height - mediaToolbarHeight - 16)
+        }
+
+        mediaOverlaySize = clampedMediaSize(target, container: container)
+        let centered = CGPoint(
+            x: (container.width - mediaOverlaySize.width) / 2.0,
+            y: mediaToolbarHeight + 8
+        )
+        mediaOverlayOrigin = clampedMediaOrigin(centered, size: mediaOverlaySize, container: container)
+        mediaOverlayResizeAnchor = mediaOverlaySize
+        mediaOverlayDragAnchor = mediaOverlayOrigin
+        hasInitializedMediaOverlay = true
+    }
+
+    private func clampedMediaSize(_ proposal: CGSize, container: CGSize) -> CGSize {
+        let maxWidth = max(mediaMinSize.width, container.width - 20)
+        let maxHeight = max(mediaMinSize.height, container.height - mediaToolbarHeight - 12)
+        return CGSize(
+            width: min(max(proposal.width, mediaMinSize.width), maxWidth),
+            height: min(max(proposal.height, mediaMinSize.height), maxHeight)
+        )
+    }
+
+    private func clampedMediaOrigin(_ proposal: CGPoint, size: CGSize, container: CGSize) -> CGPoint {
+        let minX: CGFloat = 10
+        let minY: CGFloat = mediaToolbarHeight + 6
+        let maxX = max(minX, container.width - size.width - 10)
+        let maxY = max(minY, container.height - size.height - 10)
+        return CGPoint(
+            x: min(max(proposal.x, minX), maxX),
+            y: min(max(proposal.y, minY), maxY)
+        )
+    }
+
+    private enum MediaOverlayPreset: CaseIterable {
+        case small
+        case medium
+        case large
+        case full
+
+        var label: String {
+            switch self {
+            case .small:
+                return "S"
+            case .medium:
+                return "M"
+            case .large:
+                return "L"
+            case .full:
+                return "Full"
             }
         }
     }

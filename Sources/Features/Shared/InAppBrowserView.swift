@@ -18,20 +18,12 @@ struct InAppBrowserView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
+        let webView: WKWebView
         if let persistentWebView {
-            persistentWebView.navigationDelegate = context.coordinator
-            persistentWebView.allowsBackForwardNavigationGestures = true
-            persistentWebView.scrollView.contentInsetAdjustmentBehavior = .never
-            persistentWebView.isOpaque = false
-            persistentWebView.backgroundColor = .clear
-            persistentWebView.scrollView.backgroundColor = .clear
-            return persistentWebView
+            webView = persistentWebView
+        } else {
+            webView = SharedInAppBrowserPool.shared.webView()
         }
-
-        let configuration = WKWebViewConfiguration()
-        configuration.allowsInlineMediaPlayback = true
-
-        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = context.coordinator
@@ -45,5 +37,27 @@ struct InAppBrowserView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         guard webView.url != url else { return }
         webView.load(URLRequest(url: url))
+    }
+}
+
+private final class SharedInAppBrowserPool {
+    static let shared = SharedInAppBrowserPool()
+
+    private var cached: WKWebView?
+
+    private init() {}
+
+    func webView() -> WKWebView {
+        if let cached {
+            return cached
+        }
+
+        let configuration = WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback = true
+        configuration.websiteDataStore = .default()
+
+        let created = WKWebView(frame: .zero, configuration: configuration)
+        cached = created
+        return created
     }
 }

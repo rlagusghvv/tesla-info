@@ -4,6 +4,8 @@ import SwiftUI
 struct KakaoRouteMapView: View {
     let vehicleCoordinate: CLLocationCoordinate2D?
     let route: KakaoRoute?
+    let followEnabled: Bool
+    let routeRevision: Int
 
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var lastFocusedVehicle: CLLocationCoordinate2D?
@@ -38,17 +40,40 @@ struct KakaoRouteMapView: View {
         .onChange(of: route?.polyline.count) { _, _ in
             focusIfNeeded(force: true)
         }
+        .onChange(of: routeRevision) { _, _ in
+            focusIfNeeded(force: true)
+        }
+        .onChange(of: followEnabled) { _, enabled in
+            if enabled {
+                focusIfNeeded(force: true)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func focusIfNeeded(force: Bool) {
+        if let route, !route.polyline.isEmpty, followEnabled, let vehicleCoordinate {
+            if !force, let lastFocusedVehicle {
+                let d = abs(lastFocusedVehicle.latitude - vehicleCoordinate.latitude)
+                    + abs(lastFocusedVehicle.longitude - vehicleCoordinate.longitude)
+                if d < 0.00008 { return }
+            }
+            lastFocusedVehicle = vehicleCoordinate
+
+            let region = MKCoordinateRegion(
+                center: vehicleCoordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.010, longitudeDelta: 0.010)
+            )
+            withAnimation(.easeInOut(duration: 0.35)) {
+                cameraPosition = .region(region)
+            }
+            return
+        }
+
         if let route, !route.polyline.isEmpty {
-            // Keep the camera stable while driving. Refocus only when forced (route changes or first appear).
             guard force else { return }
             guard let region = boundingRegion(for: route.polyline) else { return }
-            var txn = Transaction()
-            txn.animation = nil
-            withTransaction(txn) {
+            withAnimation(.easeInOut(duration: 0.35)) {
                 cameraPosition = .region(region)
             }
             return
@@ -67,9 +92,7 @@ struct KakaoRouteMapView: View {
             center: vehicleCoordinate,
             span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
         )
-        var txn = Transaction()
-        txn.animation = nil
-        withTransaction(txn) {
+        withAnimation(.easeInOut(duration: 0.35)) {
             cameraPosition = .region(region)
         }
     }
