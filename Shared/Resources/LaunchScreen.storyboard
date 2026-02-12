@@ -16,7 +16,7 @@
                         <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="bolt.car.fill" translatesAutoresizingMaskIntoConstraints="NO" id="L0g-0o-g0o">
+                            <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="L0g-0o-g0o">
                                 <rect key="frame" x="160.5" y="371" width="72" height="62"/>
                                 <preferredSymbolConfiguration key="preferredSymbolConfiguration" configurationType="monochrome"/>
                                 <color key="tintColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>

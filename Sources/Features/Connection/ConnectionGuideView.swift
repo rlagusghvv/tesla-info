@@ -712,10 +712,50 @@ struct ConnectionGuideView: View {
         isTestingFleetStatus = true
         teslaAuth.statusMessage = nil
 
-        Task {
-            defer { isTestingFleetStatus = false }
-            do {
-                let diag = try await TeslaFleetService.shared.testFleetStatusDiagnostics()
+        Task { @MainActor in
+            // Run the network + JSON parsing work off the main actor to avoid UI hitches.
+            let work = Task.detached(priority: .userInitiated) { () -> Result<FleetStatusDiagnostics, Error> in
+                do {
+                    let diag = try await TeslaFleetService.shared.testFleetStatusDiagnostics()
+                    return .success(diag)
+                } catch {
+                    return .failure(error)
+                }
+            }
+
+            struct FleetStatusTimeout: Error {}
+
+            // Timeout guard to avoid "feels frozen" situations.
+            let timeout = Task.detached { () -> Result<FleetStatusDiagnostics, Error> in
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                return .failure(FleetStatusTimeout())
+            }
+
+            defer {
+                isTestingFleetStatus = false
+                timeout.cancel()
+                work.cancel()
+            }
+
+            // Race: first result wins.
+            let result: Result<FleetStatusDiagnostics, Error> = await withTaskGroup(of: Result<FleetStatusDiagnostics, Error>.self) { group in
+                group.addTask { await work.value }
+                group.addTask { await timeout.value }
+                let first = await group.next() ?? .failure(FleetStatusTimeout())
+                group.cancelAll()
+                return first
+            }
+
+            switch result {
+            case .failure(let error):
+                if error is FleetStatusTimeout {
+                    teslaAuth.statusMessage = "Fleet status is taking too long. Check network/tunnel and try again."
+                } else {
+                    teslaAuth.statusMessage = error.localizedDescription
+                }
+                return
+            case .success(let diag):
+
                 let protocolText = diag.protocolRequired.map { $0 ? "true" : "false" } ?? "unknown"
                 let keyCountText = diag.totalNumberOfKeys.map(String.init) ?? "unknown"
                 let needsPairingHint: String
@@ -736,8 +776,6 @@ struct ConnectionGuideView: View {
 
                 (raw_preview omitted to keep UI responsive)
                 """
-            } catch {
-                teslaAuth.statusMessage = error.localizedDescription
             }
         }
     }
