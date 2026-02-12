@@ -20,6 +20,16 @@
 
 ## 2026-02-12
 
+### 15:19 KST — data (Media overlay resize UX / iPad mini 6)
+- 이슈: Media 탭 “사이즈 키우기/줄이기” 버튼이 패널 리사이즈가 아니라 웹페이지 자체 zoom(in/out)으로 동작
+- 원인 추정: 버튼이 WebView(JS/CSS zoom 또는 viewport scale) 조작을 하고 있음
+- 권장 수정:
+  1) 패널 크기는 **SwiftUI 레이아웃 state(overlay frame)** 로만 조절(프리셋 S/M/L + 모서리 드래그)
+  2) WKWebView 콘텐츠 zoom은 고정(zoom 비활성화) → 버튼이 WebView가 아니라 overlay frame state만 변경
+  3) 드래그 리사이즈: 우하단 핸들 제공 + 최소/최대 크기(clamp) + iPad mini 6 safe-area 고려
+- 검증 포인트: 버튼 클릭 시 URL/콘텐츠 스케일 변화 없이 overlay 크기만 변하는지, 회전/재진입 시 크기 유지
+
+
 ### 15:04 KST — ops
 - TestFlight 업로드 완료: Build 24 (processing)
 - 빌드 내용: Navi HUD 자동숨김(B안) 기반 상단 여백/세이프에어리어 패딩 + 최소 Turn-by-turn 배너(다음 안내/거리) 노출
