@@ -921,16 +921,22 @@ async function route(req, res) {
         'wake_up'
       ]);
 
+      const useFleetForCommand = state.mode === 'teslamate' && CONTROL_COMMANDS_VIA_FLEET.has(command);
+
       let result;
       if (state.mode === 'simulator') {
         result = applySimCommand(command);
       } else if (state.mode === 'teslamate') {
-        result = CONTROL_COMMANDS_VIA_FLEET.has(command)
-          ? await forwardTeslaCommand(command)
-          : await forwardTeslaMateCommand(command);
+        result = useFleetForCommand ? await forwardTeslaCommand(command) : await forwardTeslaMateCommand(command);
       } else {
         result = await forwardTeslaCommand(command);
       }
+
+      // Attach routing info for easier debugging.
+      result = {
+        ...result,
+        _routedVia: state.mode === 'simulator' ? 'simulator' : state.mode === 'teslamate' ? (useFleetForCommand ? 'fleet' : 'teslamate') : 'fleet'
+      };
 
       state.lastCommand = {
         command,
