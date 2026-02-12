@@ -3,13 +3,11 @@ import SwiftUI
 import WebKit
 
 private final class WebViewStore: ObservableObject {
-    let webView: WKWebView
-
-    init() {
+    lazy var webView: WKWebView = {
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
-        self.webView = WKWebView(frame: .zero, configuration: configuration)
-    }
+        return WKWebView(frame: .zero, configuration: configuration)
+    }()
 }
 
 @MainActor
@@ -113,7 +111,6 @@ struct CarModeView: View {
     @StateObject private var viewModel = CarModeViewModel()
     @StateObject private var naviModel = KakaoNavigationViewModel()
     @StateObject private var deviceLocationTracker = DeviceLocationTracker()
-    @State private var showMediaOverlayInNavi = false
     @State private var naviHUDVisible: Bool = true
     @State private var showChromeInNavi: Bool = false
 
@@ -327,11 +324,6 @@ struct CarModeView: View {
         ZStack(alignment: .bottomTrailing) {
             naviPane
 
-            if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
-                DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
-                    .padding(14)
-            }
-
             // Keep access to Account / Controls even in fullscreen mode.
             VStack(spacing: 10) {
                 headerIconButton(systemImage: "hand.tap") {
@@ -372,6 +364,7 @@ struct CarModeView: View {
             sendDestinationToVehicle: { place in
                 await viewModel.sendNavigationDestination(name: place.name, coordinate: place.coordinate)
             },
+            minimalMode: true,
             hudVisible: $naviHUDVisible
         )
     }
@@ -388,15 +381,9 @@ struct CarModeView: View {
                 }
                 .disabled(!networkMonitor.isConnected)
 
-                if viewModel.centerMode == .navi {
-                    headerIconButton(systemImage: showMediaOverlayInNavi ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle") {
-                        showMediaOverlayInNavi.toggle()
-                    }
-
-                    if !usePhoneSizedLayout {
-                        headerIconButton(systemImage: showChromeInNavi ? "hand.tap.fill" : "hand.tap") {
-                            toggleChromeInNavi()
-                        }
+                if !usePhoneSizedLayout {
+                    headerIconButton(systemImage: showChromeInNavi ? "hand.tap.fill" : "hand.tap") {
+                        toggleChromeInNavi()
                     }
                 }
 
@@ -430,16 +417,9 @@ struct CarModeView: View {
             Group {
                 switch viewModel.centerMode {
                 case .navi:
-                    ZStack(alignment: .bottomTrailing) {
-                        naviPane
-                        if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
-                            DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
-                                .frame(width: 360, height: 220)
-                                .padding(14)
-                        }
-                    }
+                    naviPane
                 case .media:
-                    mediaPane
+                    naviPane
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

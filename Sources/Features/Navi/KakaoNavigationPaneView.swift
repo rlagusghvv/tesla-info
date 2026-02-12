@@ -13,6 +13,7 @@ struct KakaoNavigationPaneView: View {
     let preferNativeMapRenderer: Bool
     let wakeVehicle: (() -> Void)?
     let sendDestinationToVehicle: ((KakaoPlace) async -> (ok: Bool, message: String))?
+    let minimalMode: Bool
 
     /// Controls whether overlays (HUD/search/results/route info) are visible.
     @Binding var hudVisible: Bool
@@ -226,79 +227,111 @@ struct KakaoNavigationPaneView: View {
         }
     }
 
+    @ViewBuilder
     private func mapCanvas(resultsTopPadding: CGFloat, topInset: CGFloat) -> some View {
         let jsKey = kakaoConfig.javaScriptKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let useNative = preferNativeMapRenderer
 
-        return Group {
-            if !useNative, !jsKey.isEmpty {
-                KakaoWebRouteMapView(
-                    javaScriptKey: jsKey,
-                    vehicleCoordinate: model.vehicleCoordinate,
-                    vehicleSpeedKph: vehicleSpeedKph,
-                    route: model.route,
-                    followEnabled: model.isFollowModeEnabled,
-                    routeRevision: model.routeRevision,
-                    zoomOffset: model.zoomOffset,
-                    zoomRevision: model.zoomRevision,
-                    followPulse: model.followPulse
+        if minimalMode {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.black.opacity(0.28), Color.blue.opacity(0.20)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
                 )
-            } else {
-                KakaoRouteMapView(
-                    vehicleCoordinate: model.vehicleCoordinate,
-                    route: model.route,
-                    followEnabled: model.isFollowModeEnabled,
-                    routeRevision: model.routeRevision,
-                    zoomOffset: model.zoomOffset,
-                    zoomRevision: model.zoomRevision,
-                    followPulse: model.followPulse
-                )
+                .overlay(alignment: .topLeading) {
+                    if !model.results.isEmpty, model.route == nil {
+                        resultsOverlay
+                            .padding(12)
+                            .padding(.top, max(topInset, resultsTopPadding))
+                    }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    Text("Assist mode: map disabled for stability")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.black.opacity(0.45))
+                        )
+                        .padding(10)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        } else {
+            Group {
+                if !useNative, !jsKey.isEmpty {
+                    KakaoWebRouteMapView(
+                        javaScriptKey: jsKey,
+                        vehicleCoordinate: model.vehicleCoordinate,
+                        vehicleSpeedKph: vehicleSpeedKph,
+                        route: model.route,
+                        followEnabled: model.isFollowModeEnabled,
+                        routeRevision: model.routeRevision,
+                        zoomOffset: model.zoomOffset,
+                        zoomRevision: model.zoomRevision,
+                        followPulse: model.followPulse
+                    )
+                } else {
+                    KakaoRouteMapView(
+                        vehicleCoordinate: model.vehicleCoordinate,
+                        route: model.route,
+                        followEnabled: model.isFollowModeEnabled,
+                        routeRevision: model.routeRevision,
+                        zoomOffset: model.zoomOffset,
+                        zoomRevision: model.zoomRevision,
+                        followPulse: model.followPulse
+                    )
+                }
             }
-        }
-        .overlay(alignment: .topLeading) {
-            if !model.results.isEmpty, model.route == nil {
-                resultsOverlay
-                    .padding(12)
-                    .padding(.top, max(topInset, resultsTopPadding))
+            .overlay(alignment: .topLeading) {
+                if !model.results.isEmpty, model.route == nil {
+                    resultsOverlay
+                        .padding(12)
+                        .padding(.top, max(topInset, resultsTopPadding))
+                }
             }
-        }
-        .overlay(alignment: .topTrailing) {
-            VStack(alignment: .trailing, spacing: 8) {
-                followPill
-                zoomControls
+            .overlay(alignment: .topTrailing) {
+                VStack(alignment: .trailing, spacing: 8) {
+                    followPill
+                    zoomControls
+                }
+                .padding(.top, topInset + 8)
+                .padding(.trailing, 12)
             }
-            .padding(.top, topInset + 8)
-            .padding(.trailing, 12)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            HStack(spacing: 6) {
-                Image(systemName: "hand.draw.fill")
-                    .font(.system(size: 11, weight: .bold))
-                Text("Drag cards")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-            }
-            .foregroundStyle(.white.opacity(0.82))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.black.opacity(0.48))
-            )
-            .padding(10)
-        }
-        .overlay(alignment: .bottomLeading) {
-            Text(useNative ? "Map: Apple (stability mode)" : (jsKey.isEmpty ? "Map: Apple fallback (set Kakao JS key in Account)" : "Map: Kakao"))
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.75))
+            .overlay(alignment: .bottomTrailing) {
+                HStack(spacing: 6) {
+                    Image(systemName: "hand.draw.fill")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("Drag cards")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                }
+                .foregroundStyle(.white.opacity(0.82))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
                     Capsule(style: .continuous)
-                        .fill(Color.black.opacity(0.45))
+                        .fill(Color.black.opacity(0.48))
                 )
                 .padding(10)
+            }
+            .overlay(alignment: .bottomLeading) {
+                Text(useNative ? "Map: Apple (stability mode)" : (jsKey.isEmpty ? "Map: Apple fallback (set Kakao JS key in Account)" : "Map: Kakao"))
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.black.opacity(0.45))
+                    )
+                    .padding(10)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var topPanelEstimatedHeight: CGFloat {

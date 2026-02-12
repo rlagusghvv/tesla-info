@@ -3,9 +3,11 @@ import Foundation
 
 @MainActor
 final class CarModeViewModel: ObservableObject {
-    enum CenterMode: String, CaseIterable {
-        case navi = "Navi"
+    enum CenterMode: String {
+        case navi = "Assist"
         case media = "Media"
+
+        static var allCases: [CenterMode] { [.navi] }
     }
 
     @Published private(set) var snapshot: VehicleSnapshot = .placeholder
