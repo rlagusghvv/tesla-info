@@ -159,6 +159,10 @@ default_platform(:ios)
 platform :ios do
   desc "Build + upload to TestFlight"
   lane :beta do
+    # Force UTF-8 to avoid occasional Bundler/Ruby encoding crashes in CI/headless shells.
+    ENV["LANG"] ||= "en_US.UTF-8"
+    ENV["LC_ALL"] ||= "en_US.UTF-8"
+
     ensure_required_tooling!
 
     app_identifier = resolve_app_identifier
