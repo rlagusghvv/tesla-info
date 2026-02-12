@@ -154,6 +154,21 @@ def preflight_summary!(app_identifier:, team_id:)
   UI.message("Provisioning updates: #{env_bool('ALLOW_PROVISIONING_UPDATES', default: true) ? 'ON' : 'OFF'}")
 end
 
+# Optional: load App Store Connect env vars from a local-only file so uploads work
+# from non-interactive shells (e.g., OpenClaw exec) without re-exporting env.
+# File should NOT be committed.
+# Path: tesla-subdash-starter/fastlane/.env.asc
+begin
+  env_path = File.join(__dir__, ".env.asc")
+  if File.exist?(env_path)
+    require "dotenv"
+    Dotenv.overload(env_path)
+    UI.message("Loaded ASC env from fastlane/.env.asc")
+  end
+rescue => e
+  UI.important("fastlane/.env.asc load skipped: #{e.class}: #{e.message}")
+end
+
 default_platform(:ios)
 
 platform :ios do

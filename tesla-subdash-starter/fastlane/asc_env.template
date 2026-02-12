@@ -1,0 +1,6 @@
+# Local-only App Store Connect env template
+# Copy to fastlane/.env.asc (DO NOT COMMIT) and fill values.
+ASC_KEY_ID=
+ASC_ISSUER_ID=
+ASC_KEY_PATH=/absolute/path/to/AuthKey_XXXX.p8
+APPLE_TEAM_ID=

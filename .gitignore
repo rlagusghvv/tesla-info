@@ -67,3 +67,6 @@ tesla-subdash-starter/fastlane/README.md
 tesla-subdash-starter/fastlane/Preview.html
 tesla-subdash-starter/fastlane/screenshots/
 tesla-subdash-starter/fastlane/test_output/
+
+# Local-only App Store Connect API env (do not commit)
+tesla-subdash-starter/fastlane/.env.asc
