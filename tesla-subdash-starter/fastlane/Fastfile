@@ -11,7 +11,7 @@
 # Optional:
 # - APP_IDENTIFIER (default: com.kimhyeonho.teslasubdash)
 # - SKIP_WAITING_FOR_BUILD_PROCESSING (default: true)
-# - ALLOW_PROVISIONING_UPDATES (default: false) -> adds -allowProvisioningUpdates to xcodebuild
+# - ALLOW_PROVISIONING_UPDATES (default: true) -> adds -allowProvisioningUpdates + App Store Connect auth flags to xcodebuild
 
 def require_env!(key)
   value = ENV[key]
@@ -53,13 +53,26 @@ def archive_path
   "#{build_dir}/TeslaSubDash.xcarchive"
 end
 
-def maybe_allow_provisioning_updates_xcargs
-  env_bool("ALLOW_PROVISIONING_UPDATES", default: false) ? "-allowProvisioningUpdates" : ""
+def provisioning_auth_xcargs
+  # Xcode can use an App Store Connect authentication key to talk to the Developer portal
+  # without requiring an Apple ID signed-in in Xcode.
+  return "" unless env_bool("ALLOW_PROVISIONING_UPDATES", default: true)
+
+  key_path = require_env!("ASC_KEY_PATH")
+  key_id = require_env!("ASC_KEY_ID")
+  issuer_id = require_env!("ASC_ISSUER_ID")
+
+  [
+    "-allowProvisioningUpdates",
+    "-authenticationKeyPath \"#{key_path}\"",
+    "-authenticationKeyID #{key_id}",
+    "-authenticationKeyIssuerID #{issuer_id}",
+  ].join(" ")
 end
 
-def maybe_allow_provisioning_updates_export_xcargs
-  # Export also does signing-related work. Keep the same flag.
-  maybe_allow_provisioning_updates_xcargs
+def provisioning_auth_export_xcargs
+  # Export also does signing-related work. Keep the same auth flags.
+  provisioning_auth_xcargs
 end
 
 def ensure_build_dir!
@@ -83,6 +96,8 @@ def build_archive!(project:, scheme:, team_id:)
     configuration: "Release",
     clean: true,
     silent: false,
+    # Avoid xcpretty/ruby conflicts on headless machines.
+    disable_xcpretty: true,
     output_directory: build_dir,
     output_name: "TeslaSubDash.ipa",
     export_method: "app-store",

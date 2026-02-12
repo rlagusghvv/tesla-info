@@ -29,6 +29,8 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 ### [실행 시도 결과]
 - `bundle exec fastlane ios beta` 실행 → 실패(예상): `Missing required env var: ASC_KEY_ID`
   - 원인 분류: ASC API Key 환경변수 미세팅(정상적인 fail-fast)
+- `xcodebuild archive` 실행(서명 포함) → 실패:
+  - `Provisioning profile "iOS Team Provisioning Profile: *" doesn't include signing certificate "Apple Development: hyunho Kim (PGG9A92LST)"`
 
 ### [현재 상태]
 - CLI로 컴파일은 재현 가능(코드사인 제외).
