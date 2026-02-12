@@ -38,32 +38,42 @@ export default function RecommendPage() {
     [selected],
   );
 
-  function generateMock() {
+  async function generate() {
     const k = keyword.trim();
     if (!k) {
       setError("키워드를 입력해 주세요.");
       return;
     }
+
+    setLoading(true);
     setError(null);
     setBatchResult(null);
+    setJobId(null);
 
-    const list: Candidate[] = Array.from({ length: 10 }).map((_, i) => {
-      const id = `${k.replace(/\s+/g, "_")}_${i + 1}`;
-      return {
-        candidateId: id,
-        title: `${k} 추천 아이템 ${i + 1}`,
-        reason: "수요/경쟁/실행가능성을 기준으로 우선순위를 매겼습니다.",
-        effort: i % 3 === 0 ? "낮음" : i % 3 === 1 ? "중" : "높음",
-        competition: i % 3 === 0 ? "중" : i % 3 === 1 ? "낮음" : "높음",
-      };
-    });
+    try {
+      const res = await fetch("/api/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: k }),
+      });
+      const json = await res.json();
+      if (!res.ok || json?.ok === false) {
+        setError(json?.message ?? "추천 생성 실패");
+        return;
+      }
 
-    setCandidates(list);
-    // default select top 3
-    const nextSel: Record<string, boolean> = {};
-    for (const c of list) nextSel[c.candidateId] = false;
-    list.slice(0, 3).forEach((c) => (nextSel[c.candidateId] = true));
-    setSelected(nextSel);
+      const list: Candidate[] = json.candidates ?? [];
+      setCandidates(list);
+      // default select top 3
+      const nextSel: Record<string, boolean> = {};
+      for (const c of list) nextSel[c.candidateId] = false;
+      list.slice(0, 3).forEach((c) => (nextSel[c.candidateId] = true));
+      setSelected(nextSel);
+    } catch (e: any) {
+      setError(e?.message ?? "추천 생성 실패");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function uploadBatch(itemsOverride?: Array<{ candidateId: string; title: string }>) {
@@ -195,7 +205,7 @@ export default function RecommendPage() {
               )}
 
               <button
-                onClick={generateMock}
+                onClick={generate}
                 disabled={!canGenerate}
                 className={cx(
                   "rounded-2xl px-5 py-3 text-sm font-extrabold text-white shadow-sm",
@@ -204,7 +214,7 @@ export default function RecommendPage() {
                     : "bg-neutral-300 cursor-not-allowed",
                 )}
               >
-                추천 생성
+                {loading ? "생성 중…" : "추천 생성"}
               </button>
             </div>
           </section>
