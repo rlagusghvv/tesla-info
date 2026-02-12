@@ -221,7 +221,6 @@ struct CarModeView: View {
 
             if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
                 DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
-                    .frame(width: 360, height: 220)
                     .padding(14)
             }
 
@@ -426,11 +425,15 @@ struct CarModeView: View {
         @State private var offset: CGSize = .zero
         @GestureState private var dragTranslation: CGSize = .zero
 
-        @State private var scale: CGFloat = 1.0
-        @GestureState private var magnification: CGFloat = 1.0
+        // Resize is implemented by changing the overlay frame (NOT web page zoom).
+        @State private var size: CGSize = CGSize(width: 360, height: 220)
 
-        private let minScale: CGFloat = 0.65
-        private let maxScale: CGFloat = 1.9
+        private let minSize = CGSize(width: 240, height: 160)
+        private let maxSize = CGSize(width: 920, height: 720)
+
+        private let presetS = CGSize(width: 320, height: 200)
+        private let presetM = CGSize(width: 420, height: 260)
+        private let presetL = CGSize(width: 560, height: 340)
 
         var body: some View {
             VStack(spacing: 0) {
@@ -441,31 +444,19 @@ struct CarModeView: View {
 
                     Spacer()
 
-                    Button("-") { scale = max(minScale, scale - 0.12) }
-                        .font(.system(size: 14, weight: .black, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .frame(width: 26, height: 26)
-                        .background(Circle().fill(Color.white.opacity(0.10)))
-
-                    Button("+") { scale = min(maxScale, scale + 0.12) }
-                        .font(.system(size: 14, weight: .black, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .frame(width: 26, height: 26)
-                        .background(Circle().fill(Color.white.opacity(0.10)))
-
-                    Button("S") { scale = 0.75 }
+                    Button("S") { applyPreset(presetS) }
                         .font(.system(size: 12, weight: .black, design: .rounded))
                         .foregroundStyle(.white.opacity(0.9))
                         .frame(width: 26, height: 26)
                         .background(Circle().fill(Color.white.opacity(0.10)))
 
-                    Button("M") { scale = 1.0 }
+                    Button("M") { applyPreset(presetM) }
                         .font(.system(size: 12, weight: .black, design: .rounded))
                         .foregroundStyle(.white.opacity(0.9))
                         .frame(width: 26, height: 26)
                         .background(Circle().fill(Color.white.opacity(0.10)))
 
-                    Button("L") { scale = 1.35 }
+                    Button("L") { applyPreset(presetL) }
                         .font(.system(size: 12, weight: .black, design: .rounded))
                         .foregroundStyle(.white.opacity(0.9))
                         .frame(width: 26, height: 26)
@@ -477,12 +468,15 @@ struct CarModeView: View {
 
                 InAppBrowserView(url: url, persistentWebView: webView)
             }
-            .scaleEffect(scale * magnification)
+            .frame(width: size.width, height: size.height)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(Color.white.opacity(0.14), lineWidth: 1)
             )
+            .overlay(alignment: .bottomTrailing) {
+                resizeHandle
+            }
             .shadow(color: Color.black.opacity(0.35), radius: 16, x: 0, y: 10)
             .offset(x: offset.width + dragTranslation.width, y: offset.height + dragTranslation.height)
             .gesture(
@@ -495,16 +489,36 @@ struct CarModeView: View {
                         offset.height += value.translation.height
                     }
             )
-            .simultaneousGesture(
-                MagnificationGesture()
-                    .updating($magnification) { value, state, _ in
-                        state = value
-                    }
-                    .onEnded { value in
-                        let next = scale * value
-                        scale = min(maxScale, max(minScale, next))
-                    }
+        }
+
+        private var resizeHandle: some View {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(.white.opacity(0.95))
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Color.black.opacity(0.55)))
+                .padding(10)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let next = CGSize(width: size.width + value.translation.width, height: size.height + value.translation.height)
+                            size = clampSize(next)
+                        }
+                )
+        }
+
+        private func clampSize(_ raw: CGSize) -> CGSize {
+            CGSize(
+                width: min(maxSize.width, max(minSize.width, raw.width)),
+                height: min(maxSize.height, max(minSize.height, raw.height))
             )
+        }
+
+        private func applyPreset(_ preset: CGSize) {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.88)) {
+                size = clampSize(preset)
+            }
         }
     }
 

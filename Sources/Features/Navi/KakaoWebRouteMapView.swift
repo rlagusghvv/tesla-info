@@ -5,6 +5,7 @@ import WebKit
 struct KakaoWebRouteMapView: UIViewRepresentable {
     let javaScriptKey: String
     let vehicleCoordinate: CLLocationCoordinate2D?
+    let vehicleSpeedKph: Double
     let route: KakaoRoute?
 
     func makeCoordinator() -> Coordinator {
@@ -32,6 +33,7 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
         context.coordinator.pushState(
             to: webView,
             vehicleCoordinate: vehicleCoordinate,
+            speedKph: vehicleSpeedKph,
             polyline: route?.polyline ?? []
         )
     }
@@ -58,14 +60,15 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
             webView.loadHTMLString(html, baseURL: Self.mapDocumentBaseURL)
         }
 
-        func pushState(to webView: WKWebView, vehicleCoordinate: CLLocationCoordinate2D?, polyline: [CLLocationCoordinate2D]) {
+        func pushState(to webView: WKWebView, vehicleCoordinate: CLLocationCoordinate2D?, speedKph: Double, polyline: [CLLocationCoordinate2D]) {
             guard !loadedKey.isEmpty else { return }
 
             let payload: [String: Any] = [
                 "vehicle": vehicleCoordinate.map { ["lat": $0.latitude, "lon": $0.longitude] } as Any,
+                "speedKph": speedKph,
                 "polyline": polyline.map { ["lat": $0.latitude, "lon": $0.longitude] }
             ]
-            let signature = payloadSignature(vehicleCoordinate: vehicleCoordinate, polyline: polyline)
+            let signature = payloadSignature(vehicleCoordinate: vehicleCoordinate, speedKph: speedKph, polyline: polyline)
             guard signature != lastPayloadSignature else { return }
 
             if !isPageReady {
@@ -87,6 +90,7 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                     else { return nil }
                     return CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 }
+                let speedKph = payload["speedKph"] as? Double ?? 0
                 let polyline = (payload["polyline"] as? [[String: Any]] ?? []).compactMap { dict -> CLLocationCoordinate2D? in
                     guard
                         let lat = dict["lat"] as? Double,
@@ -94,7 +98,7 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                     else { return nil }
                     return CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 }
-                let signature = payloadSignature(vehicleCoordinate: vehicle, polyline: polyline)
+                let signature = payloadSignature(vehicleCoordinate: vehicle, speedKph: speedKph, polyline: polyline)
                 push(payload: payload, signature: signature, to: webView)
             }
         }
@@ -188,6 +192,20 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                   return new kakao.maps.LatLng(p.lat, p.lon);
                 }
 
+                let lastRouteSig = '';
+
+                function routeSignature(points) {
+                  if (!Array.isArray(points) || points.length < 2) return 'none';
+                  const a = points[0];
+                  const b = points[Math.floor(points.length / 2)];
+                  const c = points[points.length - 1];
+                  return [points.length,
+                    a?.lat?.toFixed?.(5), a?.lon?.toFixed?.(5),
+                    b?.lat?.toFixed?.(5), b?.lon?.toFixed?.(5),
+                    c?.lat?.toFixed?.(5), c?.lon?.toFixed?.(5)
+                  ].join('|');
+                }
+
                 window.__updateRouteMap = function(payload) {
                   ensureMap();
                   if (!map) return;
@@ -195,52 +213,64 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                   const points = Array.isArray(payload?.polyline) ? payload.polyline : [];
                   const vehicle = payload?.vehicle || null;
 
-                  if (routeLine) {
-                    routeLine.setMap(null);
-                    routeLine = null;
+                  // Re-render route only when it actually changes.
+                  const sig = routeSignature(points);
+                  const routeChanged = sig !== lastRouteSig;
+
+                  if (routeChanged) {
+                    lastRouteSig = sig;
+                    if (routeLine) {
+                      routeLine.setMap(null);
+                      routeLine = null;
+                    }
+                    if (points.length > 1) {
+                      const path = points
+                        .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180)
+                        .map(toLatLng);
+                      if (path.length > 1) {
+                        routeLine = new kakao.maps.Polyline({
+                          map: map,
+                          path: path,
+                          strokeWeight: 5,
+                          strokeColor: '#3B82F6',
+                          strokeOpacity: 0.95
+                        });
+                      }
+                    }
                   }
 
-                  if (points.length > 1) {
-                    const path = points.map(toLatLng);
-                    routeLine = new kakao.maps.Polyline({
-                      map: map,
-                      path: path,
-                      strokeWeight: 5,
-                      strokeColor: '#3B82F6',
-                      strokeOpacity: 0.95
-                    });
-                  }
-
-                  if (carMarker) {
-                    carMarker.setMap(null);
-                    carMarker = null;
-                  }
-
+                  // Update marker without recreating it every tick.
                   if (vehicle && Number.isFinite(vehicle.lat) && Number.isFinite(vehicle.lon)) {
                     const pos = toLatLng(vehicle);
-                    carMarker = new kakao.maps.Marker({ position: pos });
-                    carMarker.setMap(map);
+                    if (!carMarker) {
+                      carMarker = new kakao.maps.Marker({ position: pos });
+                      carMarker.setMap(map);
+                    } else {
+                      carMarker.setPosition(pos);
+                    }
+
+                    // Follow vehicle (navigation-like). Keep a tighter zoom when guidance is active.
+                    map.panTo(pos);
+                    if (points.length > 1) {
+                      map.setLevel(4); // zoom in
+                    } else {
+                      map.setLevel(6);
+                    }
                   }
 
-                  const bounds = new kakao.maps.LatLngBounds();
-                  let hasBounds = false;
-
-                  if (points.length > 1) {
+                  // On first route render, fit bounds once (then follow vehicle afterwards).
+                  if (routeChanged && points.length > 1) {
+                    const bounds = new kakao.maps.LatLngBounds();
+                    let hasBounds = false;
                     points.forEach((p) => {
-                      if (Number.isFinite(p.lat) && Number.isFinite(p.lon)) {
+                      if (Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180) {
                         bounds.extend(toLatLng(p));
                         hasBounds = true;
                       }
                     });
-                  }
-
-                  if (vehicle && Number.isFinite(vehicle.lat) && Number.isFinite(vehicle.lon)) {
-                    bounds.extend(toLatLng(vehicle));
-                    hasBounds = true;
-                  }
-
-                  if (hasBounds) {
-                    map.setBounds(bounds, 48, 48, 48, 48);
+                    if (hasBounds) {
+                      map.setBounds(bounds, 48, 48, 48, 48);
+                    }
                   }
                 };
               </script>
