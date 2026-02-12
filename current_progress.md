@@ -20,7 +20,15 @@ When resuming work, read this file first and continue from **[다음 단계]**.
   1) 팀장 PC에도 동일한 ASC API Key를 안전 경로에 저장(예: 개인 시크릿 디렉토리)
   2) fastlane 실행 시 아래 env를 세팅
      - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`(=p8 파일 경로)
+     - (편의) `tesla-subdash-starter/fastlane/.env.asc` 로컬 파일로만 보관(레포 커밋 금지)
   3) 또는 이 Mac mini에서 업로드 lane을 계속 수행(키를 외부로 복사하지 않는 방식)
+
+### [팀장 업로드 실패(ASC_KEY_ID 비어있음) 트러블슈팅]
+- `Missing required env var: ASC_KEY_ID` 는 **키가 없어서가 아니라, 실행 환경에 env가 로드되지 않은 상태**를 의미.
+- 해결 옵션(둘 중 택1):
+  - A) 팀장 PC에서 `.env.asc`를 실제 값으로 채우고 fastlane이 이를 읽도록 구성
+  - B) fastlane 실행 커맨드에 `-authenticationKeyPath /path/to/AuthKey_XXXX.p8 -authenticationKeyID XXXX -authenticationKeyIssuerID YYYY` 를 직접 전달(현재 ops가 build 24 업로드할 때 사용한 방식)
+- 민감정보는 절대 MD/레포에 붙이지 말고, **로컬 시크릿 파일/키체인/CI secret**으로만 관리
 
 
 ### [스프린트 목표]
@@ -1078,3 +1086,15 @@ When resuming work, read this file first and continue from **[다음 단계]**.
   - 권장: 키 파일은 안전한 비밀 저장소(1Password/Keychain/Secret Manager)에 보관하고,
     - 각 업로드 담당 환경(팀장 머신/CI)에는 env(ASC_KEY_ID/ASC_ISSUER_ID/ASC_KEY_PATH/APPLE_TEAM_ID)로만 주입
     - md에는 "키가 있음/어느 머신에서 업로드함/재현 명령" 같은 메타 정보만 기록
+
+## 2026-02-12 (TestFlight 업로드 시도 상태 @15:31)
+- 현 세션(ui) 기준: ASC 관련 env가 주입되지 않아 `fastlane ios beta`는 즉시 실패(ASC_KEY_ID missing).
+- 관찰: `tesla-subdash-starter/fastlane/.env.asc` 파일이 없거나(또는 값이 비어) 업로드 재현이 불가한 상태로 보임.
+- 해결 방향(보안 유지):
+  - 키(p8) 내용을 md에 공유하지 말고,
+  - 업로드가 되던 팀장 환경/CI에서만 `.env.asc` 또는 환경변수로 주입해 업로드 수행.
+  - 이 머신에서 재현이 필요하면 `fastlane/.env.asc`에 다음 4개만 채워서(파일 권한 제한) 사용:
+    - ASC_KEY_ID
+    - ASC_ISSUER_ID
+    - ASC_KEY_PATH (AuthKey_*.p8 절대경로)
+    - APPLE_TEAM_ID
