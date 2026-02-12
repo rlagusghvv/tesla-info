@@ -17,7 +17,7 @@ final class CarModeViewModel: ObservableObject {
     @Published var commandMessage: String?
     @Published var centerMode: CenterMode = .navi
     @Published var mediaURLText: String = "https://www.youtube.com"
-    @Published private(set) var pollIntervalSeconds: Int = 12
+    @Published private(set) var pollIntervalSeconds: Int = 20
     @Published private(set) var lastSuccessfulUpdateAt: Date?
 
     private let service: TelemetryService
@@ -43,7 +43,7 @@ final class CarModeViewModel: ObservableObject {
             while !Task.isCancelled {
                 await self.refresh()
                 // Fleet API polling too frequently can get rate-limited.
-                let seconds = max(6, self.pollIntervalSeconds)
+                let seconds = max(10, self.pollIntervalSeconds)
                 try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
             }
         }
@@ -76,9 +76,9 @@ final class CarModeViewModel: ObservableObject {
             lastSuccessfulUpdateAt = Date()
 
             if latest.vehicle.speedKph > 1 {
-                pollIntervalSeconds = 8
-            } else {
                 pollIntervalSeconds = 12
+            } else {
+                pollIntervalSeconds = 20
             }
         } catch {
             if shouldIgnore(error) {
@@ -106,7 +106,7 @@ final class CarModeViewModel: ObservableObject {
             }
 
             // Exponential-ish backoff to keep the UI responsive when the API is failing.
-            pollIntervalSeconds = min(60, 12 + (consecutiveFailures * 6))
+            pollIntervalSeconds = min(90, 20 + (consecutiveFailures * 10))
         }
     }
 

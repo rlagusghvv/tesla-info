@@ -140,6 +140,7 @@ struct CarModeView: View {
     private let mediaMinSize = CGSize(width: 330, height: 220)
     private let regularTopInset: CGFloat = 22
     private let phoneLayoutMaxWidth: CGFloat = 430
+    private let useUltraLiteAssist = true
 
     private var usePhoneSizedLayout: Bool {
         // Product decision: run car mode UI in iPhone-size layout on all devices.
@@ -362,31 +363,87 @@ struct CarModeView: View {
     }
 
     private var naviPane: some View {
-        KakaoNavigationPaneView(
-            model: naviModel,
-            vehicleLocation: effectiveNaviLocation,
-            vehicleSpeedKph: effectiveNaviSpeedKph,
-            locationSourceLabel: effectiveLocationSourceLabel,
-            preferNativeMapRenderer: true,
-            wakeVehicle: {
-                viewModel.sendCommand("wake_up")
-                Task {
-                    for attempt in 0..<6 {
-                        let waitSeconds = attempt == 0 ? 5 : 4
-                        try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
-                        await viewModel.refresh()
-                        if viewModel.snapshot.vehicle.location.isValid {
-                            break
+        Group {
+            if useUltraLiteAssist {
+                ultraLiteAssistPane
+            } else {
+                KakaoNavigationPaneView(
+                    model: naviModel,
+                    vehicleLocation: effectiveNaviLocation,
+                    vehicleSpeedKph: effectiveNaviSpeedKph,
+                    locationSourceLabel: effectiveLocationSourceLabel,
+                    preferNativeMapRenderer: true,
+                    wakeVehicle: {
+                        viewModel.sendCommand("wake_up")
+                        Task {
+                            for attempt in 0..<6 {
+                                let waitSeconds = attempt == 0 ? 5 : 4
+                                try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
+                                await viewModel.refresh()
+                                if viewModel.snapshot.vehicle.location.isValid {
+                                    break
+                                }
+                            }
                         }
-                    }
+                    },
+                    sendDestinationToVehicle: { place in
+                        await viewModel.sendNavigationDestination(name: place.name, coordinate: place.coordinate)
+                    },
+                    teslaNavigation: viewModel.snapshot.navigation,
+                    minimalMode: true,
+                    hudVisible: $naviHUDVisible
+                )
+            }
+        }
+    }
+
+    private var ultraLiteAssistPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(Int(max(0, effectiveNaviSpeedKph.rounded())))")
+                    .font(.system(size: 52, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.black.opacity(0.9))
+                Text("km/h")
+                    .font(.system(size: 19, weight: .black, design: .rounded))
+                    .foregroundStyle(Color.black.opacity(0.6))
+                Spacer(minLength: 0)
+                if !viewModel.navigationDestinationText.isEmpty {
+                    Text(viewModel.navigationDestinationText)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.66))
+                        .lineLimit(1)
                 }
-            },
-            sendDestinationToVehicle: { place in
-                await viewModel.sendNavigationDestination(name: place.name, coordinate: place.coordinate)
-            },
-            teslaNavigation: viewModel.snapshot.navigation,
-            minimalMode: true,
-            hudVisible: $naviHUDVisible
+            }
+
+            HStack(spacing: 8) {
+                statusPill(text: effectiveLocationSourceLabel, tint: .blue)
+                Text(viewModel.locationText)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.black.opacity(0.58))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                controlButton(title: "Wake", symbol: "bolt.fill", command: "wake_up", variant: .compact)
+                Button {
+                    Task { await viewModel.refresh() }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 14, height: 44, cornerRadius: 12))
+                .disabled(!networkMonitor.isConnected || viewModel.isCommandRunning)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(red: 0.98, green: 0.99, blue: 1.0))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                )
         )
     }
 

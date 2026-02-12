@@ -17,7 +17,7 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="L0g-0o-g0o">
-                                <rect key="frame" x="178.5" y="389" width="36" height="30"/>
+                                <rect key="frame" x="179.5" y="392" width="34" height="28"/>
                                 <preferredSymbolConfiguration key="preferredSymbolConfiguration" configurationType="monochrome"/>
                                 <color key="tintColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                             </imageView>
@@ -31,7 +31,9 @@
                         <color key="backgroundColor" red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
                             <constraint firstItem="L0g-0o-g0o" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="lg-cx"/>
-                            <constraint firstItem="L0g-0o-g0o" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-12" id="lg-cy"/>
+                            <constraint firstItem="L0g-0o-g0o" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-10" id="lg-cy"/>
+                            <constraint firstItem="L0g-0o-g0o" firstAttribute="width" constant="34" id="lg-w"/>
+                            <constraint firstItem="L0g-0o-g0o" firstAttribute="height" constant="28" id="lg-h"/>
                             <constraint firstItem="XyZ-1a-bcd" firstAttribute="top" secondItem="L0g-0o-g0o" secondAttribute="bottom" constant="6" id="tx-1"/>
                             <constraint firstItem="XyZ-1a-bcd" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="cX-1"/>
                             <constraint firstItem="XyZ-1a-bcd" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="6Tk-OE-BBY" secondAttribute="leading" constant="20" id="ld-1"/>
