@@ -41,7 +41,7 @@ export default function Shell({
             <span className="text-sm">COUPILOT</span>
           </Link>
           <nav className="hidden items-center gap-2 pl-4 md:flex">
-            <NavLink href="/app/recommend" label="추천" />
+            <NavLink href="/recommend" label="추천" />
             <NavLink href="/app/upload" label="업로드" />
             <NavLink href="/app/console" label="콘솔" />
           </nav>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 type FeatureTab = "상품 분석" | "소싱 분석" | "광고 분석";
@@ -81,12 +82,12 @@ export default function Home() {
             <button className="rounded-full px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-black/5">
               로그인
             </button>
-            <a
+            <Link
               href="/analyze"
               className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-neutral-800"
             >
               시작하기
-            </a>
+            </Link>
           </div>
         </div>
       </header>
@@ -121,18 +122,18 @@ export default function Home() {
 
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <div className="flex flex-wrap items-center gap-3">
-                <a
+                <Link
                   href="/analyze"
                   className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-6 py-3 text-sm font-bold text-white shadow-sm hover:bg-neutral-800"
                 >
                   빠르게 시작하기 →
-                </a>
-                <a
-                  href="/app/recommend"
+                </Link>
+                <Link
+                  href="/recommend"
                   className="inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-bold text-neutral-800 hover:bg-black/5"
                 >
                   추천/배치 업로드
-                </a>
+                </Link>
               </div>
               <button className="rounded-full px-6 py-3 text-sm font-bold text-neutral-800 hover:bg-black/5">
                 로그보기
