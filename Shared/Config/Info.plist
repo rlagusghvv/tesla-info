@@ -42,8 +42,14 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>로컬 네트워크의 텔레메트리 서버(Mac 백엔드)에 연결해 차량 정보를 표시하기 위해 필요합니다.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>주행 중 화면이 꺼진 상태에서도 과속 카메라 알림과 경로 보조를 유지하려면 항상 위치 권한이 필요합니다.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>주행 중 현재 위치와 속도 기반 안내(카메라 경보/팔로우 지도)를 위해 위치 권한이 필요합니다.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UILaunchStoryboardName</key>

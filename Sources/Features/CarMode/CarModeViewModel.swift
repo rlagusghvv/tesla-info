@@ -203,6 +203,33 @@ final class CarModeViewModel: ObservableObject {
         snapshot.vehicle.isClimateOn ? "A/C On" : "A/C Off"
     }
 
+    var navigationDestinationText: String {
+        guard let nav = snapshot.navigation else { return "No active Tesla route" }
+        let name = nav.destinationName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !name.isEmpty { return name }
+        if let destination = nav.destination {
+            let lat = String(format: "%.5f", destination.lat)
+            let lon = String(format: "%.5f", destination.lon)
+            return "\(lat), \(lon)"
+        }
+        return "Active route"
+    }
+
+    var navigationSummaryText: String {
+        guard let nav = snapshot.navigation else { return "Tesla route unavailable" }
+        var parts: [String] = []
+        if let remainingKm = nav.remainingKm {
+            parts.append(String(format: "%.1f km left", remainingKm))
+        }
+        if let etaMinutes = nav.etaMinutes {
+            parts.append("\(etaMinutes) min")
+        }
+        if let delay = nav.trafficDelayMinutes, delay > 0 {
+            parts.append("+\(delay)m traffic")
+        }
+        return parts.isEmpty ? "Route active" : parts.joined(separator: " · ")
+    }
+
     var locationText: String {
         if snapshot.vehicle.location.isValid {
             let lat = String(format: "%.5f", snapshot.vehicle.location.lat)

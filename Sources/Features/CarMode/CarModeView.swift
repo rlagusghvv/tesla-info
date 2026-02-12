@@ -19,6 +19,7 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
 
     private let manager = CLLocationManager()
     private var hasStartedUpdates = false
+    private var hasRequestedAlwaysAuthorization = false
 
     override init() {
         super.init()
@@ -26,7 +27,9 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = 2
         manager.activityType = .automotiveNavigation
-        manager.pausesLocationUpdatesAutomatically = true
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.allowsBackgroundLocationUpdates = true
+        manager.showsBackgroundLocationIndicator = false
         authorizationStatus = manager.authorizationStatus
     }
 
@@ -34,11 +37,16 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
         guard CLLocationManager.locationServicesEnabled() else { return }
         authorizationStatus = manager.authorizationStatus
         if authorizationStatus == .notDetermined {
-            manager.requestWhenInUseAuthorization()
+            manager.requestAlwaysAuthorization()
             return
         }
         if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+            if authorizationStatus == .authorizedWhenInUse && !hasRequestedAlwaysAuthorization {
+                hasRequestedAlwaysAuthorization = true
+                manager.requestAlwaysAuthorization()
+            }
             manager.startUpdatingLocation()
+            manager.startMonitoringSignificantLocationChanges()
             hasStartedUpdates = true
         }
     }
@@ -46,6 +54,7 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
     func stop() {
         guard hasStartedUpdates else { return }
         manager.stopUpdatingLocation()
+        manager.stopMonitoringSignificantLocationChanges()
         hasStartedUpdates = false
     }
 
@@ -73,10 +82,16 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
         Task { @MainActor in
             authorizationStatus = manager.authorizationStatus
             if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+                if authorizationStatus == .authorizedWhenInUse && !hasRequestedAlwaysAuthorization {
+                    hasRequestedAlwaysAuthorization = true
+                    manager.requestAlwaysAuthorization()
+                }
                 manager.startUpdatingLocation()
+                manager.startMonitoringSignificantLocationChanges()
                 hasStartedUpdates = true
             } else if authorizationStatus == .denied || authorizationStatus == .restricted {
                 manager.stopUpdatingLocation()
+                manager.stopMonitoringSignificantLocationChanges()
                 hasStartedUpdates = false
             }
         }
@@ -213,7 +228,6 @@ struct CarModeView: View {
                 deviceLocationTracker.start()
             case .inactive, .background:
                 viewModel.stop()
-                deviceLocationTracker.stop()
             @unknown default:
                 break
             }
@@ -364,6 +378,7 @@ struct CarModeView: View {
             sendDestinationToVehicle: { place in
                 await viewModel.sendNavigationDestination(name: place.name, coordinate: place.coordinate)
             },
+            teslaNavigation: viewModel.snapshot.navigation,
             minimalMode: true,
             hudVisible: $naviHUDVisible
         )
@@ -719,6 +734,22 @@ struct CarModeView: View {
                         metricRow(title: "Range", value: viewModel.rangeText)
                         metricRow(title: "Lock", value: viewModel.lockText)
                         metricRow(title: "Climate", value: viewModel.climateText)
+                    }
+                }
+
+                card {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Tesla Route")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Text(viewModel.navigationDestinationText)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                        Text(viewModel.navigationSummaryText)
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.78))
+                            .lineLimit(1)
                     }
                 }
 

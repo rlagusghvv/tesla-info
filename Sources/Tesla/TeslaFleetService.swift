@@ -53,6 +53,7 @@ actor TeslaFleetService {
                         mode: mapped.mode,
                         updatedAt: iso.string(from: Date()),
                         lastCommand: mapped.lastCommand,
+                        navigation: mapped.navigation,
                         vehicle: patchedVehicle
                     )
                 }
@@ -72,6 +73,7 @@ actor TeslaFleetService {
                             mode: mapped.mode,
                             updatedAt: iso.string(from: Date()),
                             lastCommand: mapped.lastCommand,
+                            navigation: mapped.navigation,
                             vehicle: patchedVehicle
                         )
                     }
@@ -89,6 +91,7 @@ actor TeslaFleetService {
                 mode: mapped.mode,
                 updatedAt: iso.string(from: Date()),
                 lastCommand: mapped.lastCommand,
+                navigation: mapped.navigation,
                 vehicle: patchedVehicle
             )
         }
@@ -108,6 +111,7 @@ actor TeslaFleetService {
                         mode: plainMapped.mode,
                         updatedAt: iso.string(from: Date()),
                         lastCommand: plainMapped.lastCommand,
+                        navigation: plainMapped.navigation,
                         vehicle: patchedVehicle
                     )
                 }
@@ -289,6 +293,7 @@ actor TeslaFleetService {
                     mode: snap.mode,
                     updatedAt: snap.updatedAt,
                     lastCommand: log,
+                    navigation: snap.navigation,
                     vehicle: snap.vehicle
                 )
             }
@@ -327,6 +332,7 @@ actor TeslaFleetService {
                 mode: snap.mode,
                 updatedAt: snap.updatedAt,
                 lastCommand: log,
+                navigation: snap.navigation,
                 vehicle: snap.vehicle
             )
         }
@@ -1070,6 +1076,13 @@ private struct TeslaDriveState: Decodable {
     let speed: Double?
     let nativeLatitude: Double?
     let nativeLongitude: Double?
+    let activeRouteDestination: String?
+    let activeRouteLatitude: Double?
+    let activeRouteLongitude: Double?
+    let activeRouteMilesToArrival: Double?
+    let activeRouteMinutesToArrival: Double?
+    let activeRouteTrafficMinutesDelay: Double?
+    let activeRouteEnergyAtArrival: Double?
 
     enum CodingKeys: String, CodingKey {
         case latitude
@@ -1078,6 +1091,13 @@ private struct TeslaDriveState: Decodable {
         case speed
         case nativeLatitude = "native_latitude"
         case nativeLongitude = "native_longitude"
+        case activeRouteDestination = "active_route_destination"
+        case activeRouteLatitude = "active_route_latitude"
+        case activeRouteLongitude = "active_route_longitude"
+        case activeRouteMilesToArrival = "active_route_miles_to_arrival"
+        case activeRouteMinutesToArrival = "active_route_minutes_to_arrival"
+        case activeRouteTrafficMinutesDelay = "active_route_traffic_minutes_delay"
+        case activeRouteEnergyAtArrival = "active_route_energy_at_arrival"
     }
 }
 
@@ -1178,12 +1198,14 @@ private enum TeslaMapper {
         let mph = drive?.speed ?? loc?.speed
         let batteryRangeMi = charge?.batteryRange
         let odometerMi = vehicleState?.odometer
+        let navigation = mapNavigationState(from: drive)
 
         let snapshot = VehicleSnapshot(
             source: "fleet_api",
             mode: "fleet_api",
             updatedAt: ISO8601DateFormatter().string(from: Date()),
             lastCommand: nil,
+            navigation: navigation,
             vehicle: VehicleData(
                 vin: vin,
                 displayName: displayName.isEmpty ? (prev?.displayName ?? "Vehicle") : displayName,
@@ -1206,6 +1228,43 @@ private enum TeslaMapper {
         )
 
         return snapshot
+    }
+
+    private static func mapNavigationState(from drive: TeslaDriveState?) -> NavigationState? {
+        guard let drive else { return nil }
+
+        let destinationName = drive.activeRouteDestination?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lat = drive.activeRouteLatitude
+        let lon = drive.activeRouteLongitude
+        let hasValidCoordinates =
+            lat.map { (-90.0...90.0).contains($0) } == true &&
+            lon.map { (-180.0...180.0).contains($0) } == true &&
+            (abs(lat ?? 0) > 0.000_01 || abs(lon ?? 0) > 0.000_01)
+
+        let destination: VehicleLocation? = hasValidCoordinates ? VehicleLocation(lat: lat ?? 0, lon: lon ?? 0) : nil
+        let remainingKm = drive.activeRouteMilesToArrival.map { max(0, $0 * 1.60934) }
+        let etaMinutes = drive.activeRouteMinutesToArrival.map { Int(max(0, $0.rounded())) }
+        let trafficDelayMinutes = drive.activeRouteTrafficMinutesDelay.map { Int(max(0, $0.rounded())) }
+        let energyAtArrivalPercent = drive.activeRouteEnergyAtArrival
+
+        let hasAnyValue =
+            !(destinationName ?? "").isEmpty ||
+            destination != nil ||
+            remainingKm != nil ||
+            etaMinutes != nil ||
+            trafficDelayMinutes != nil ||
+            energyAtArrivalPercent != nil
+
+        guard hasAnyValue else { return nil }
+
+        return NavigationState(
+            destinationName: (destinationName?.isEmpty == false) ? destinationName : nil,
+            destination: destination,
+            remainingKm: remainingKm,
+            etaMinutes: etaMinutes,
+            trafficDelayMinutes: trafficDelayMinutes,
+            energyAtArrivalPercent: energyAtArrivalPercent
+        )
     }
 
     private static func mphToKph(_ mph: Double) -> Double {

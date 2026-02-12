@@ -80,6 +80,7 @@ const state = {
   source: MODE === 'simulator' ? 'simulator' : 'startup',
   lastCommand: null,
   updatedAt: new Date().toISOString(),
+  navigation: null,
   vehicle: {
     vin: MODE === 'fleet' ? TESLA_VIN || 'FLEET_VIN' : MODE === 'teslamate' ? 'TESLAMATE_VIN' : 'SIMULATED_VIN',
     displayName: 'Model Y',
@@ -212,16 +213,24 @@ async function readJson(req) {
 }
 
 function applyPatch(patch, source = 'patch') {
+  const nextNavigation =
+    patch && Object.prototype.hasOwnProperty.call(patch, 'navigation')
+      ? normalizeNavigationState(patch.navigation)
+      : state.navigation;
+  const vehiclePatch = patch && typeof patch === 'object' ? { ...patch } : {};
+  delete vehiclePatch.navigation;
+
   const nextVehicle = {
     ...state.vehicle,
-    ...patch,
+    ...vehiclePatch,
     location: {
       ...state.vehicle.location,
-      ...(patch.location || {})
+      ...(vehiclePatch.location || {})
     }
   };
 
   state.vehicle = nextVehicle;
+  state.navigation = nextNavigation;
   state.source = source;
   state.updatedAt = new Date().toISOString();
 }
@@ -232,6 +241,7 @@ function snapshotResponse() {
     mode: state.mode,
     updatedAt: state.updatedAt,
     lastCommand: state.lastCommand,
+    navigation: state.navigation,
     vehicle: state.vehicle
   };
 }
@@ -331,6 +341,72 @@ function normalizeNavigationDestination(payload) {
   };
 }
 
+function normalizeNavigationState(raw) {
+  if (raw === null) {
+    return null;
+  }
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const destinationName = String(raw.destinationName || raw.name || '').trim() || null;
+  const lat = toFiniteNumber(raw.destination?.lat ?? raw.destinationLat ?? raw.lat);
+  const lon = toFiniteNumber(raw.destination?.lon ?? raw.destinationLon ?? raw.lon ?? raw.lng);
+  const remainingKm = toFiniteNumber(raw.remainingKm);
+  const etaMinutesRaw = toFiniteNumber(raw.etaMinutes);
+  const trafficDelayMinutesRaw = toFiniteNumber(raw.trafficDelayMinutes);
+  const energyAtArrivalPercent = toFiniteNumber(raw.energyAtArrivalPercent);
+
+  const hasValidCoordinates =
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lon >= -180 &&
+    lon <= 180 &&
+    (Math.abs(lat) > 0.00001 || Math.abs(lon) > 0.00001);
+
+  const normalized = {
+    destinationName,
+    destination: hasValidCoordinates ? { lat, lon } : null,
+    remainingKm: Number.isFinite(remainingKm) ? Math.max(0, remainingKm) : null,
+    etaMinutes: Number.isFinite(etaMinutesRaw) ? Math.max(0, Math.round(etaMinutesRaw)) : null,
+    trafficDelayMinutes: Number.isFinite(trafficDelayMinutesRaw) ? Math.max(0, Math.round(trafficDelayMinutesRaw)) : null,
+    energyAtArrivalPercent: Number.isFinite(energyAtArrivalPercent) ? energyAtArrivalPercent : null
+  };
+
+  if (
+    !normalized.destinationName &&
+    !normalized.destination &&
+    normalized.remainingKm == null &&
+    normalized.etaMinutes == null &&
+    normalized.trafficDelayMinutes == null &&
+    normalized.energyAtArrivalPercent == null
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function mapNavigationFromDriveState(drive) {
+  if (!drive || typeof drive !== 'object') {
+    return null;
+  }
+
+  return normalizeNavigationState({
+    destinationName: drive.active_route_destination || null,
+    destination: {
+      lat: drive.active_route_latitude,
+      lon: drive.active_route_longitude
+    },
+    remainingKm: milesToKm(toFiniteNumber(drive.active_route_miles_to_arrival)),
+    etaMinutes: toFiniteNumber(drive.active_route_minutes_to_arrival),
+    trafficDelayMinutes: toFiniteNumber(drive.active_route_traffic_minutes_delay),
+    energyAtArrivalPercent: toFiniteNumber(drive.active_route_energy_at_arrival)
+  });
+}
+
 function summarizeFleetCommand(parsed, status, fallbackFailure = 'Command failed') {
   const result = parsed?.response?.result;
   const success = typeof result === 'boolean' ? result : true;
@@ -344,6 +420,7 @@ function summarizeFleetCommand(parsed, status, fallbackFailure = 'Command failed
 
 function normalizeIngestPayload(payload) {
   const vehicle = payload.vehicle || {};
+  const navigation = normalizeNavigationState(payload.navigation ?? vehicle.navigation ?? null);
 
   return {
     vin: vehicle.vin || payload.vin || state.vehicle.vin,
@@ -364,7 +441,8 @@ function normalizeIngestPayload(payload) {
     location: {
       lat: vehicle.location?.lat ?? payload.lat ?? state.vehicle.location.lat,
       lon: vehicle.location?.lon ?? payload.lon ?? state.vehicle.location.lon
-    }
+    },
+    navigation
   };
 }
 
@@ -373,6 +451,7 @@ function mapTeslaVehicleDataToSnapshot(vehicleData) {
   const charge = vehicleData.charge_state || {};
   const climate = vehicleData.climate_state || {};
   const vehicleState = vehicleData.vehicle_state || {};
+  const navigation = mapNavigationFromDriveState(drive);
 
   return {
     vin: vehicleData.vin || state.vehicle.vin,
@@ -391,7 +470,8 @@ function mapTeslaVehicleDataToSnapshot(vehicleData) {
     location: {
       lat: drive.latitude ?? state.vehicle.location.lat,
       lon: drive.longitude ?? state.vehicle.location.lon
-    }
+    },
+    navigation
   };
 }
 

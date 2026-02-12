@@ -13,6 +13,7 @@ struct KakaoNavigationPaneView: View {
     let preferNativeMapRenderer: Bool
     let wakeVehicle: (() -> Void)?
     let sendDestinationToVehicle: ((KakaoPlace) async -> (ok: Bool, message: String))?
+    let teslaNavigation: NavigationState?
     let minimalMode: Bool
 
     /// Controls whether overlays (HUD/search/results/route info) are visible.
@@ -29,7 +30,10 @@ struct KakaoNavigationPaneView: View {
 
     @State private var autoHideTask: Task<Void, Never>?
     @State private var speedCameraRefreshTask: Task<Void, Never>?
+    @State private var teslaRouteSyncTask: Task<Void, Never>?
     @State private var destinationPushStatus: (ok: Bool, message: String)?
+    @State private var lastSyncedTeslaRouteSignature: String = ""
+    @State private var lastTeslaRouteAttemptAt: Date = .distantPast
     @StateObject private var speedCameraAlertEngine = SpeedCameraAlertEngine()
 
     private let autoHideSeconds: Double = 14
@@ -189,6 +193,7 @@ struct KakaoNavigationPaneView: View {
             revealHUDAndScheduleAutoHide()
             speedCameraAlertEngine.reset()
             scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.15)
+            scheduleTeslaRouteSync(force: true, delaySeconds: 0.2)
             updateSpeedCameraAlerts()
         }
         .onDisappear {
@@ -198,11 +203,14 @@ struct KakaoNavigationPaneView: View {
             followPulseTask = nil
             speedCameraRefreshTask?.cancel()
             speedCameraRefreshTask = nil
+            teslaRouteSyncTask?.cancel()
+            teslaRouteSyncTask = nil
             speedCameraAlertEngine.reset()
         }
         .onChange(of: vehicleLocation) { _, _ in
             model.updateVehicle(location: vehicleLocation, speedKph: vehicleSpeedKph)
             scheduleSpeedCameraPOIRefresh(force: false, delaySeconds: 0.8)
+            scheduleTeslaRouteSync(force: false, delaySeconds: 0.25)
             updateSpeedCameraAlerts()
         }
         .onChange(of: vehicleSpeedKph) { _, _ in
@@ -219,6 +227,9 @@ struct KakaoNavigationPaneView: View {
         }
         .onChange(of: model.speedCameraRevision) { _, _ in
             updateSpeedCameraAlerts()
+        }
+        .onChange(of: teslaRouteSignature) { _, _ in
+            scheduleTeslaRouteSync(force: true, delaySeconds: 0.12)
         }
         .onChange(of: hudVisible) { _, visible in
             if !visible {
@@ -600,6 +611,14 @@ struct KakaoNavigationPaneView: View {
                     .foregroundStyle(.white.opacity(0.72))
             }
 
+            if minimalMode, let destination = teslaNavigation?.destination {
+                let lat = String(format: "%.5f", destination.lat)
+                let lon = String(format: "%.5f", destination.lon)
+                Text("Tesla 경로 연동: \(lat), \(lon)")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.green.opacity(0.9))
+            }
+
             if model.route == nil {
                 HStack(spacing: 10) {
                     Text("속도 \(Int(vehicleSpeedKph.rounded())) km/h")
@@ -814,6 +833,52 @@ struct KakaoNavigationPaneView: View {
             }
             if Task.isCancelled { return }
             await model.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: force)
+        }
+    }
+
+    private var teslaRouteSignature: String {
+        guard let destination = teslaNavigation?.destination, destination.isValid else { return "" }
+        let destinationName = teslaNavigation?.destinationName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return String(format: "%.5f,%.5f|%@", destination.lat, destination.lon, destinationName)
+    }
+
+    private func scheduleTeslaRouteSync(force: Bool, delaySeconds: Double) {
+        guard minimalMode else { return }
+        teslaRouteSyncTask?.cancel()
+        teslaRouteSyncTask = Task { @MainActor in
+            if delaySeconds > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+            }
+            if Task.isCancelled { return }
+            await syncRouteFromTeslaIfNeeded(force: force)
+        }
+    }
+
+    private func syncRouteFromTeslaIfNeeded(force: Bool) async {
+        guard minimalMode else { return }
+        guard let nav = teslaNavigation, let destination = nav.destination, destination.isValid else { return }
+        guard networkMonitor.isConnected else { return }
+
+        let signature = teslaRouteSignature
+        guard !signature.isEmpty else { return }
+        if !force, signature == lastSyncedTeslaRouteSignature, model.route != nil {
+            return
+        }
+
+        // Prevent route API churn when vehicle location updates rapidly.
+        let now = Date()
+        if !force, now.timeIntervalSince(lastTeslaRouteAttemptAt) < 8 {
+            return
+        }
+        lastTeslaRouteAttemptAt = now
+
+        let key = kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        guard let origin = model.vehicleCoordinate else { return }
+
+        await model.startRoute(restAPIKey: key, origin: origin, destination: destination.coordinate)
+        if model.route != nil {
+            lastSyncedTeslaRouteSignature = signature
         }
     }
 
@@ -1065,6 +1130,7 @@ private final class SpeedCameraAlertEngine: ObservableObject {
 
     private let thresholdsMeters = [1000, 500, 300, 150]
     private let synthesizer = AVSpeechSynthesizer()
+    private var didConfigureAudioSession = false
     private var currentGuideID: String?
     private var firedThresholds: Set<Int> = []
     private var lastSpokenAt: Date = .distantPast
@@ -1106,6 +1172,8 @@ private final class SpeedCameraAlertEngine: ObservableObject {
         guard now.timeIntervalSince(lastSpokenAt) >= 5 else { return }
         lastSpokenAt = now
 
+        configureAudioSessionIfNeeded()
+
         let roundedSpeed = Int(max(0, speedKph.rounded()))
         var text = "과속 단속 카메라 \(stage)미터 앞입니다"
         if stage <= 300, roundedSpeed >= 50 {
@@ -1117,5 +1185,17 @@ private final class SpeedCameraAlertEngine: ObservableObject {
         utterance.rate = 0.46
         utterance.volume = 0.95
         synthesizer.speak(utterance)
+    }
+
+    private func configureAudioSessionIfNeeded() {
+        guard !didConfigureAudioSession else { return }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, options: [.duckOthers, .mixWithOthers])
+            try session.setActive(true)
+            didConfigureAudioSession = true
+        } catch {
+            // Non-fatal: speech can still work with the default session.
+        }
     }
 }

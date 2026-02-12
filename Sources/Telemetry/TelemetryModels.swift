@@ -6,13 +6,31 @@ struct VehicleSnapshot: Codable {
     let mode: String
     let updatedAt: String
     let lastCommand: CommandLog?
+    let navigation: NavigationState?
     let vehicle: VehicleData
+
+    init(
+        source: String,
+        mode: String,
+        updatedAt: String,
+        lastCommand: CommandLog?,
+        navigation: NavigationState? = nil,
+        vehicle: VehicleData
+    ) {
+        self.source = source
+        self.mode = mode
+        self.updatedAt = updatedAt
+        self.lastCommand = lastCommand
+        self.navigation = navigation
+        self.vehicle = vehicle
+    }
 
     static let placeholder = VehicleSnapshot(
         source: "placeholder",
         mode: "simulator",
         updatedAt: ISO8601DateFormatter().string(from: Date()),
         lastCommand: nil,
+        navigation: nil,
         vehicle: VehicleData(
             vin: "SIMULATED_VIN",
             displayName: "Model Y",
@@ -30,6 +48,15 @@ struct VehicleSnapshot: Codable {
             location: VehicleLocation(lat: 37.498095, lon: 127.02761)
         )
     )
+}
+
+struct NavigationState: Codable, Equatable {
+    let destinationName: String?
+    let destination: VehicleLocation?
+    let remainingKm: Double?
+    let etaMinutes: Int?
+    let trafficDelayMinutes: Int?
+    let energyAtArrivalPercent: Double?
 }
 
 struct CommandLog: Codable {
