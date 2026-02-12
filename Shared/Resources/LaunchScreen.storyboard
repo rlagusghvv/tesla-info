@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="26000" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
-    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <device id="retina6_1" orientation="portrait" appearance="light"/>
     <dependencies>
         <deployment identifier="iOS"/>
         <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="26000"/>
@@ -17,13 +17,13 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <imageView opaque="NO" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="L0g-0o-g0o">
-                                <rect key="frame" x="160.5" y="371" width="72" height="62"/>
+                                <rect key="frame" x="170.5" y="380" width="52" height="44"/>
                                 <preferredSymbolConfiguration key="preferredSymbolConfiguration" configurationType="monochrome"/>
                                 <color key="tintColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                             </imageView>
                             <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="TeslaSubDash" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="XyZ-1a-bcd">
-                                <rect key="frame" x="20" y="445" width="353" height="22"/>
-                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="18"/>
+                                <rect key="frame" x="20" y="432" width="353" height="18"/>
+                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="15"/>
                                 <color key="textColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                             </label>
                         </subviews>
@@ -31,8 +31,8 @@
                         <color key="backgroundColor" red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
                             <constraint firstItem="L0g-0o-g0o" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="lg-cx"/>
-                            <constraint firstItem="L0g-0o-g0o" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-22" id="lg-cy"/>
-                            <constraint firstItem="XyZ-1a-bcd" firstAttribute="top" secondItem="L0g-0o-g0o" secondAttribute="bottom" constant="10" id="tx-1"/>
+                            <constraint firstItem="L0g-0o-g0o" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-12" id="lg-cy"/>
+                            <constraint firstItem="XyZ-1a-bcd" firstAttribute="top" secondItem="L0g-0o-g0o" secondAttribute="bottom" constant="8" id="tx-1"/>
                             <constraint firstItem="XyZ-1a-bcd" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="cX-1"/>
                             <constraint firstItem="XyZ-1a-bcd" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="6Tk-OE-BBY" secondAttribute="leading" constant="20" id="ld-1"/>
                             <constraint firstItem="6Tk-OE-BBY" firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="XyZ-1a-bcd" secondAttribute="trailing" constant="20" id="tr-1"/>

@@ -236,10 +236,12 @@ struct CarModeView: View {
 
     private var content: some View {
         GeometryReader { proxy in
-            let sideHeight = min(340, max(210, proxy.size.height * 0.33))
+            let centerHeight = min(430, max(250, proxy.size.height * 0.52))
+            let sideHeight = min(320, max(180, proxy.size.height - centerHeight - 24))
 
             VStack(spacing: 10) {
                 regularCenterPanel
+                    .frame(height: centerHeight)
 
                 Group {
                     sidePanel
@@ -437,7 +439,7 @@ struct CarModeView: View {
                     naviPane
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, alignment: .top)
 
             HStack(spacing: 8) {
                 Text("Source: \(viewModel.snapshot.source)")

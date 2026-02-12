@@ -43,144 +43,150 @@ struct KakaoNavigationPaneView: View {
     private let bannerYKey = "kakao.navi.banner.offset.y"
 
     var body: some View {
-        GeometryReader { proxy in
-            let panelWidth = min(proxy.size.width * 0.64, 560)
-            let topInset = max(24.0, proxy.safeAreaInsets.top + 16)
-            let bottomInset = max(16.0, proxy.safeAreaInsets.bottom + 12)
-            let resultsTopPadding = topInset + topPanelEstimatedHeight + topPanelOffset.height + 10
-            let turnBannerWidth = max(260.0, min(proxy.size.width - 132, 760))
+        Group {
+            if minimalMode {
+                minimalAssistBody
+            } else {
+                GeometryReader { proxy in
+                    let panelWidth = min(proxy.size.width * 0.64, 560)
+                    let topInset = max(24.0, proxy.safeAreaInsets.top + 16)
+                    let bottomInset = max(16.0, proxy.safeAreaInsets.bottom + 12)
+                    let resultsTopPadding = topInset + topPanelEstimatedHeight + topPanelOffset.height + 10
+                    let turnBannerWidth = max(260.0, min(proxy.size.width - 132, 760))
 
-            ZStack(alignment: .topLeading) {
-                mapCanvas(resultsTopPadding: resultsTopPadding, topInset: topInset)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        searchFocused = false
-                        if Date() < suppressMapTapUntil { return }
-                        revealHUDAndScheduleAutoHide()
-                    }
-
-                // Minimal turn-by-turn banner (keeps navigation feeling alive even when HUD is hidden)
-                if model.route != nil {
-                    turnByTurnBanner(next: model.nextGuide)
-                        .frame(maxWidth: turnBannerWidth, alignment: .leading)
-                        .padding(.top, topInset + 20 + turnBannerOffset.height)
-                        .padding(.leading, 64 + turnBannerOffset.width)
-                        .padding(.trailing, 24)
-                        .gesture(
-                            DragGesture(minimumDistance: 2, coordinateSpace: .local)
-                                .onChanged { value in
-                                    searchFocused = false
-                                    turnBannerOffset = clampedTurnBannerOffset(
-                                        proposalX: turnBannerAnchorOffset.width + value.translation.width,
-                                        proposalY: turnBannerAnchorOffset.height + value.translation.height,
-                                        containerSize: proxy.size,
-                                        baseTopInset: topInset,
-                                        bannerWidth: turnBannerWidth
-                                    )
-                                }
-                                .onEnded { _ in
-                                    turnBannerAnchorOffset = turnBannerOffset
-                                    persistPanelOffsets()
-                                }
-                        )
-                        .transition(.opacity)
-                }
-
-                if hudVisible {
-                    VStack(alignment: .leading, spacing: 8) {
-                        header
-
-                        if kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            missingKeyCard
-                        } else {
-                            searchBar
-                            favoriteDestinationsRow
-                        }
-
-                        routeInfo
-
-                        if model.route == nil, model.results.isEmpty {
-                            compactHowToCard
-                        }
-                    }
-                    .padding(12)
-                    .frame(maxWidth: panelWidth, alignment: .topLeading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.clear)
+                    ZStack(alignment: .topLeading) {
+                        mapCanvas(resultsTopPadding: resultsTopPadding, topInset: topInset)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .contentShape(Rectangle())
-                    )
-                    .offset(
-                        x: topPanelOffset.width,
-                        y: topInset + topPanelOffset.height
-                    )
-                    .gesture(
-                            DragGesture(minimumDistance: 2, coordinateSpace: .local)
-                                .onChanged { value in
-                                    searchFocused = false
-                                    topPanelOffset = clampedTopPanelOffset(
-                                        proposalX: topPanelAnchorOffset.width + value.translation.width,
-                                        proposalY: topPanelAnchorOffset.height + value.translation.height,
-                                    containerSize: proxy.size,
-                                    panelWidth: panelWidth,
-                                    topInset: topInset
-                                )
+                            .onTapGesture {
+                                searchFocused = false
+                                if Date() < suppressMapTapUntil { return }
+                                revealHUDAndScheduleAutoHide()
                             }
-                            .onEnded { _ in
-                                topPanelAnchorOffset = topPanelOffset
-                                persistPanelOffsets()
-                            }
-                    )
-                    .transition(.opacity)
-                }
 
-                // Always-visible handle so users can bring HUD back.
-                Button {
-                    if hudVisible {
-                        searchFocused = false
-                        autoHideTask?.cancel()
-                        autoHideTask = nil
-                        suppressMapTapUntil = Date().addingTimeInterval(0.25)
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            hudVisible = false
+                        // Minimal turn-by-turn banner (keeps navigation feeling alive even when HUD is hidden)
+                        if model.route != nil {
+                            turnByTurnBanner(next: model.nextGuide)
+                                .frame(maxWidth: turnBannerWidth, alignment: .leading)
+                                .padding(.top, topInset + 20 + turnBannerOffset.height)
+                                .padding(.leading, 64 + turnBannerOffset.width)
+                                .padding(.trailing, 24)
+                                .gesture(
+                                    DragGesture(minimumDistance: 2, coordinateSpace: .local)
+                                        .onChanged { value in
+                                            searchFocused = false
+                                            turnBannerOffset = clampedTurnBannerOffset(
+                                                proposalX: turnBannerAnchorOffset.width + value.translation.width,
+                                                proposalY: turnBannerAnchorOffset.height + value.translation.height,
+                                                containerSize: proxy.size,
+                                                baseTopInset: topInset,
+                                                bannerWidth: turnBannerWidth
+                                            )
+                                        }
+                                        .onEnded { _ in
+                                            turnBannerAnchorOffset = turnBannerOffset
+                                            persistPanelOffsets()
+                                        }
+                                )
+                                .transition(.opacity)
                         }
-                    } else {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            hudVisible = true
+
+                        if hudVisible {
+                            VStack(alignment: .leading, spacing: 8) {
+                                header
+
+                                if kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    missingKeyCard
+                                } else {
+                                    searchBar
+                                    favoriteDestinationsRow
+                                }
+
+                                routeInfo
+
+                                if model.route == nil, model.results.isEmpty {
+                                    compactHowToCard
+                                }
+                            }
+                            .padding(12)
+                            .frame(maxWidth: panelWidth, alignment: .topLeading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.clear)
+                                    .contentShape(Rectangle())
+                            )
+                            .offset(
+                                x: topPanelOffset.width,
+                                y: topInset + topPanelOffset.height
+                            )
+                            .gesture(
+                                    DragGesture(minimumDistance: 2, coordinateSpace: .local)
+                                        .onChanged { value in
+                                            searchFocused = false
+                                            topPanelOffset = clampedTopPanelOffset(
+                                                proposalX: topPanelAnchorOffset.width + value.translation.width,
+                                                proposalY: topPanelAnchorOffset.height + value.translation.height,
+                                            containerSize: proxy.size,
+                                            panelWidth: panelWidth,
+                                            topInset: topInset
+                                        )
+                                    }
+                                    .onEnded { _ in
+                                        topPanelAnchorOffset = topPanelOffset
+                                        persistPanelOffsets()
+                                    }
+                            )
+                            .transition(.opacity)
                         }
-                        revealHUDAndScheduleAutoHide()
+
+                        // Always-visible handle so users can bring HUD back.
+                        Button {
+                            if hudVisible {
+                                searchFocused = false
+                                autoHideTask?.cancel()
+                                autoHideTask = nil
+                                suppressMapTapUntil = Date().addingTimeInterval(0.25)
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    hudVisible = false
+                                }
+                            } else {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    hudVisible = true
+                                }
+                                revealHUDAndScheduleAutoHide()
+                            }
+                        } label: {
+                            Image(systemName: hudVisible ? "eye" : "eye.slash")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.92))
+                                .frame(width: 40, height: 40)
+                                .background(Circle().fill(Color.black.opacity(0.45)))
+                                .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, bottomInset)
+                        .padding(.leading, 12)
+                        .opacity(hudVisible ? 0.55 : 1.0)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     }
-                } label: {
-                    Image(systemName: hudVisible ? "eye" : "eye.slash")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.92))
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(Color.black.opacity(0.45)))
-                        .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                    .animation(.easeInOut(duration: 0.18), value: hudVisible)
+                    .onAppear {
+                        restoreOffsetsIfNeeded(
+                            containerSize: proxy.size,
+                            panelWidth: panelWidth,
+                            topInset: topInset,
+                            bannerWidth: turnBannerWidth
+                        )
+                    }
+                    .onChange(of: proxy.size) { _, size in
+                        clampPersistedOffsets(
+                            containerSize: size,
+                            panelWidth: panelWidth,
+                            topInset: topInset,
+                            bannerWidth: turnBannerWidth
+                        )
+                    }
                 }
-                .buttonStyle(.plain)
-                .padding(.bottom, bottomInset)
-                .padding(.leading, 12)
-                .opacity(hudVisible ? 0.55 : 1.0)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            }
-            .animation(.easeInOut(duration: 0.18), value: hudVisible)
-            .onAppear {
-                restoreOffsetsIfNeeded(
-                    containerSize: proxy.size,
-                    panelWidth: panelWidth,
-                    topInset: topInset,
-                    bannerWidth: turnBannerWidth
-                )
-            }
-            .onChange(of: proxy.size) { _, size in
-                clampPersistedOffsets(
-                    containerSize: size,
-                    panelWidth: panelWidth,
-                    topInset: topInset,
-                    bannerWidth: turnBannerWidth
-                )
             }
         }
         .onAppear {
@@ -189,8 +195,14 @@ struct KakaoNavigationPaneView: View {
             DispatchQueue.main.async {
                 searchFocused = false
             }
-            startFollowPulseLoop()
-            revealHUDAndScheduleAutoHide()
+            if minimalMode {
+                hudVisible = true
+                autoHideTask?.cancel()
+                autoHideTask = nil
+            } else {
+                startFollowPulseLoop()
+                revealHUDAndScheduleAutoHide()
+            }
             speedCameraAlertEngine.reset()
             scheduleSpeedCameraPOIRefresh(force: true, delaySeconds: 0.15)
             scheduleTeslaRouteSync(force: true, delaySeconds: 0.2)
@@ -236,6 +248,60 @@ struct KakaoNavigationPaneView: View {
                 searchFocused = false
             }
         }
+    }
+
+    private var minimalAssistBody: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                header
+
+                if kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    missingKeyCard
+                } else {
+                    searchBar
+                    favoriteDestinationsRow
+                }
+
+                routeInfo
+
+                if !model.results.isEmpty {
+                    resultsOverlay
+                }
+
+                if model.route != nil {
+                    turnByTurnBanner(next: model.nextGuide)
+                } else if model.results.isEmpty {
+                    compactHowToCard
+                }
+
+                Text("Assist mode: map hidden for stability")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.74))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.black.opacity(0.44))
+                    )
+            }
+            .padding(12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.black.opacity(0.24), Color.blue.opacity(0.20)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     @ViewBuilder
@@ -376,9 +442,11 @@ struct KakaoNavigationPaneView: View {
                     .tint(.white)
             }
 
-            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white.opacity(0.72))
+            if !minimalMode {
+                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.72))
+            }
 
             Button {
                 revealHUDAndScheduleAutoHide(extend: true)
@@ -713,10 +781,10 @@ struct KakaoNavigationPaneView: View {
                     }
                 }
             }
-            .frame(maxHeight: 220)
+            .frame(maxHeight: minimalMode ? 300 : 220)
         }
         .padding(12)
-        .frame(width: 340, alignment: .leading)
+        .frame(maxWidth: minimalMode ? .infinity : 340, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.black.opacity(0.58))
@@ -1093,6 +1161,13 @@ struct KakaoNavigationPaneView: View {
 private extension KakaoNavigationPaneView {
     /// Shows HUD and schedules auto-hide with a generous delay.
     func revealHUDAndScheduleAutoHide(extend: Bool = false) {
+        if minimalMode {
+            if !hudVisible { hudVisible = true }
+            autoHideTask?.cancel()
+            autoHideTask = nil
+            return
+        }
+
         // If user is actively typing in search, keep HUD visible.
         if searchFocused {
             if !hudVisible { hudVisible = true }
