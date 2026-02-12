@@ -223,7 +223,7 @@ If TeslaMate loses login/session, backend now tries an automatic repair flow:
 
 ## 3) Connect iPad app to backend
 
-- In `Config/Info.plist`, `BackendBaseURL` defaults to `https://tesla.splui.com` (you can still override in-app for LAN/local testing).
+- In `Shared/Config/Info.plist`, `BackendBaseURL` defaults to `https://tesla.splui.com` (you can still override in-app for LAN/local testing).
 - For physical iPad testing, start backend in LAN mode so it can accept connections:
   - `npm run backend:start:tesla:lan` (Fleet)
   - `npm run backend:start:teslamate:lan` (TeslaMate fallback)

@@ -147,8 +147,15 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
               <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
               <style>
                 html, body, #map { margin:0; padding:0; width:100%; height:100%; background:#0d1320; }
+                #status { position: fixed; left: 12px; bottom: 12px; right: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(0,0,0,0.45); color: rgba(255,255,255,0.85); font: 12px -apple-system, system-ui, sans-serif; z-index: 9999; }
               </style>
-              <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=\(appKey)"></script>
+              <script>
+                window.__setStatus = function(msg) {
+                  const el = document.getElementById('status');
+                  if (el) el.textContent = msg;
+                }
+              </script>
+              <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=\(appKey)" onerror="window.__setStatus('Failed to load Kakao Maps SDK (check JS key + allowed domains)');"></script>
             </head>
             <body>
               <div id="map"></div>
@@ -165,6 +172,12 @@ struct KakaoWebRouteMapView: UIViewRepresentable {
                     level: 6
                   });
                 }
+
+                // Render base map ASAP even before native state push.
+                // This prevents a blank canvas when route/vehicle payload is delayed.
+                window.addEventListener('load', () => {
+                  try { ensureMap(); } catch (e) {}
+                });
 
                 function toLatLng(p) {
                   return new kakao.maps.LatLng(p.lat, p.lon);
