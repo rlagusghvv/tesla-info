@@ -12,29 +12,48 @@ struct KakaoNavigationPaneView: View {
 
     @FocusState private var searchFocused: Bool
 
+    @State private var hudCollapsed: Bool = false
+
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 mapCanvas
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    header
+                if !hudCollapsed {
+                    VStack(alignment: .leading, spacing: 8) {
+                        header
 
-                    if kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        missingKeyCard
-                    } else {
-                        searchBar
+                        if kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            missingKeyCard
+                        } else {
+                            searchBar
+                        }
+
+                        routeInfo
+
+                        if model.route == nil, model.results.isEmpty {
+                            compactHowToCard
+                        }
                     }
-
-                    routeInfo
-
-                    if model.route == nil, model.results.isEmpty {
-                        compactHowToCard
-                    }
+                    .padding(12)
+                    .frame(maxWidth: min(proxy.size.width * 0.64, 560), alignment: .topLeading)
                 }
+
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        hudCollapsed.toggle()
+                    }
+                } label: {
+                    Image(systemName: hudCollapsed ? "square.stack.3d.up" : "square.stack.3d.down.right")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .frame(width: 40, height: 40)
+                        .background(Circle().fill(Color.black.opacity(0.45)))
+                        .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
                 .padding(12)
-                .frame(maxWidth: min(proxy.size.width * 0.64, 560), alignment: .topLeading)
             }
         }
         .onAppear {
@@ -219,17 +238,22 @@ struct KakaoNavigationPaneView: View {
             }
 
             if let next = model.nextGuide {
-                HStack {
-                    Text("다음: \(next.guidance)")
-                        .font(.system(size: 15, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Spacer()
-                    if let meters = model.distanceToNextGuideMeters() {
-                        Text("\(meters)m")
-                            .font(.system(size: 15, weight: .heavy, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.9))
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(next.guidance)
+                            .font(.system(size: 18, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Spacer()
+                        if let meters = model.distanceToNextGuideMeters() {
+                            Text("\(meters)m")
+                                .font(.system(size: 18, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
                     }
+                    Text("다음 안내")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.65))
                 }
             } else if model.vehicleCoordinate == nil, let wakeVehicle {
                 Button {

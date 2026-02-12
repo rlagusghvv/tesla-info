@@ -1,4 +1,15 @@
 import SwiftUI
+import WebKit
+
+private final class WebViewStore: ObservableObject {
+    let webView: WKWebView
+
+    init() {
+        let configuration = WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback = true
+        self.webView = WKWebView(frame: .zero, configuration: configuration)
+    }
+}
 
 struct CarModeView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -9,6 +20,8 @@ struct CarModeView: View {
     @StateObject private var naviModel = KakaoNavigationViewModel()
     @State private var showSetupSheet = false
     @State private var showMediaOverlayInNavi = false
+
+    @StateObject private var mediaWebViewStore = WebViewStore()
 
     var body: some View {
         ZStack {
@@ -254,7 +267,7 @@ struct CarModeView: View {
                         )
 
                         if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
-                            DraggableMediaOverlay(url: mediaURL)
+                            DraggableMediaOverlay(url: mediaURL, webView: mediaWebViewStore.webView)
                                 .frame(width: 360, height: 220)
                                 .padding(14)
                         }
@@ -339,9 +352,13 @@ struct CarModeView: View {
 
     private struct DraggableMediaOverlay: View {
         let url: URL
+        let webView: WKWebView
 
         @State private var offset: CGSize = .zero
         @GestureState private var dragTranslation: CGSize = .zero
+
+        @State private var scale: CGFloat = 1.0
+        @GestureState private var magnification: CGFloat = 1.0
 
         var body: some View {
             VStack(spacing: 0) {
@@ -358,8 +375,9 @@ struct CarModeView: View {
                 .padding(.vertical, 8)
                 .background(Color.black.opacity(0.55))
 
-                InAppBrowserView(url: url)
+                InAppBrowserView(url: url, persistentWebView: webView)
             }
+            .scaleEffect(scale * magnification)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -375,6 +393,16 @@ struct CarModeView: View {
                     .onEnded { value in
                         offset.width += value.translation.width
                         offset.height += value.translation.height
+                    }
+            )
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .updating($magnification) { value, state, _ in
+                        state = value
+                    }
+                    .onEnded { value in
+                        let next = scale * value
+                        scale = min(1.9, max(0.65, next))
                     }
             )
         }
@@ -396,7 +424,7 @@ struct CarModeView: View {
             .frame(height: 66)
 
             if let mediaURL = viewModel.mediaURL {
-                InAppBrowserView(url: mediaURL)
+                InAppBrowserView(url: mediaURL, persistentWebView: mediaWebViewStore.webView)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             } else {
                 Text("Invalid media URL")

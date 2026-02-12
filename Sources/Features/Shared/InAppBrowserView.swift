@@ -3,6 +3,7 @@ import WebKit
 
 struct InAppBrowserView: UIViewRepresentable {
     let url: URL
+    var persistentWebView: WKWebView? = nil
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -17,6 +18,16 @@ struct InAppBrowserView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
+        if let persistentWebView {
+            persistentWebView.navigationDelegate = context.coordinator
+            persistentWebView.allowsBackForwardNavigationGestures = true
+            persistentWebView.scrollView.contentInsetAdjustmentBehavior = .never
+            persistentWebView.isOpaque = false
+            persistentWebView.backgroundColor = .clear
+            persistentWebView.scrollView.backgroundColor = .clear
+            return persistentWebView
+        }
+
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
 
