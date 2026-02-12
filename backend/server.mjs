@@ -948,6 +948,7 @@ async function route(req, res) {
       sendJson(res, result.ok ? 200 : 502, {
         ok: result.ok,
         message: result.message,
+        routedVia: result._routedVia || null,
         details: result.body || null,
         snapshot: snapshotResponse()
       });
