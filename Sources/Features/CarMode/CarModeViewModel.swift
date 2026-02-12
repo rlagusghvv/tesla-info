@@ -3,7 +3,6 @@ import Foundation
 @MainActor
 final class CarModeViewModel: ObservableObject {
     enum CenterMode: String, CaseIterable {
-        case map = "Map"
         case navi = "Navi"
         case media = "Media"
     }
@@ -13,7 +12,7 @@ final class CarModeViewModel: ObservableObject {
     @Published private(set) var isCommandRunning = false
     @Published var errorMessage: String?
     @Published var commandMessage: String?
-    @Published var centerMode: CenterMode = .map
+    @Published var centerMode: CenterMode = .navi
     @Published var mediaURLText: String = "https://www.youtube.com"
     @Published private(set) var pollIntervalSeconds: Int = 12
     @Published private(set) var lastSuccessfulUpdateAt: Date?

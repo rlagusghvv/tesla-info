@@ -6,6 +6,8 @@ struct KakaoPlace: Identifiable {
     let name: String
     let coordinate: CLLocationCoordinate2D
     let address: String
+    let categoryGroupCode: String?
+    let categoryName: String?
 }
 
 struct KakaoRoute {

@@ -49,7 +49,9 @@ actor KakaoAPIClient {
                 id: doc.id,
                 name: doc.placeName,
                 coordinate: CLLocationCoordinate2D(latitude: y, longitude: x),
-                address: address
+                address: address,
+                categoryGroupCode: doc.categoryGroupCode,
+                categoryName: doc.categoryName
             )
         }
     }
@@ -182,6 +184,8 @@ private struct KakaoKeywordSearchDocument: Decodable {
     let y: String
     let addressName: String
     let roadAddressName: String
+    let categoryGroupCode: String?
+    let categoryName: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -190,6 +194,8 @@ private struct KakaoKeywordSearchDocument: Decodable {
         case y
         case addressName = "address_name"
         case roadAddressName = "road_address_name"
+        case categoryGroupCode = "category_group_code"
+        case categoryName = "category_name"
     }
 }
 

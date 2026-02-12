@@ -8,6 +8,7 @@ struct CarModeView: View {
     @StateObject private var viewModel = CarModeViewModel()
     @StateObject private var naviModel = KakaoNavigationViewModel()
     @State private var showSetupSheet = false
+    @State private var showMediaOverlayInNavi = false
 
     var body: some View {
         ZStack {
@@ -195,6 +196,12 @@ struct CarModeView: View {
                 }
                 .disabled(!networkMonitor.isConnected)
 
+                if viewModel.centerMode == .navi {
+                    headerIconButton(systemImage: showMediaOverlayInNavi ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle") {
+                        showMediaOverlayInNavi.toggle()
+                    }
+                }
+
                 headerIconButton(systemImage: "person.crop.circle") {
                     showSetupSheet = true
                 }
@@ -224,28 +231,34 @@ struct CarModeView: View {
 
             Group {
                 switch viewModel.centerMode {
-                case .map:
-                    TelemetryMapView(location: viewModel.snapshot.vehicle.location)
                 case .navi:
-                    KakaoNavigationPaneView(
-                        model: naviModel,
-                        vehicleLocation: viewModel.snapshot.vehicle.location,
-                        vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
-                        wakeVehicle: {
-                            viewModel.sendCommand("wake_up")
-                            Task {
-                                // Wake can take a while; retry refresh multiple times to reduce manual tapping.
-                                for attempt in 0..<6 {
-                                    let waitSeconds = attempt == 0 ? 5 : 4
-                                    try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
-                                    await viewModel.refresh()
-                                    if viewModel.snapshot.vehicle.location.isValid {
-                                        break
+                    ZStack(alignment: .bottomTrailing) {
+                        KakaoNavigationPaneView(
+                            model: naviModel,
+                            vehicleLocation: viewModel.snapshot.vehicle.location,
+                            vehicleSpeedKph: viewModel.snapshot.vehicle.speedKph,
+                            wakeVehicle: {
+                                viewModel.sendCommand("wake_up")
+                                Task {
+                                    // Wake can take a while; retry refresh multiple times to reduce manual tapping.
+                                    for attempt in 0..<6 {
+                                        let waitSeconds = attempt == 0 ? 5 : 4
+                                        try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
+                                        await viewModel.refresh()
+                                        if viewModel.snapshot.vehicle.location.isValid {
+                                            break
+                                        }
                                     }
                                 }
                             }
+                        )
+
+                        if showMediaOverlayInNavi, let mediaURL = viewModel.mediaURL {
+                            DraggableMediaOverlay(url: mediaURL)
+                                .frame(width: 360, height: 220)
+                                .padding(14)
                         }
-                    )
+                    }
                 case .media:
                     mediaPane
                 }
@@ -320,6 +333,49 @@ struct CarModeView: View {
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .stroke(Color.white.opacity(0.14), lineWidth: 1)
                     )
+            )
+        }
+    }
+
+    private struct DraggableMediaOverlay: View {
+        let url: URL
+
+        @State private var offset: CGSize = .zero
+        @GestureState private var dragTranslation: CGSize = .zero
+
+        var body: some View {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Media")
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Spacer()
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.55))
+
+                InAppBrowserView(url: url)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.35), radius: 16, x: 0, y: 10)
+            .offset(x: offset.width + dragTranslation.width, y: offset.height + dragTranslation.height)
+            .gesture(
+                DragGesture()
+                    .updating($dragTranslation) { value, state, _ in
+                        state = value.translation
+                    }
+                    .onEnded { value in
+                        offset.width += value.translation.width
+                        offset.height += value.translation.height
+                    }
             )
         }
     }

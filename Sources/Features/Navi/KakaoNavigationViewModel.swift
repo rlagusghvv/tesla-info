@@ -44,7 +44,7 @@ final class KakaoNavigationViewModel: ObservableObject {
 
         do {
             let places = try await client(restAPIKey: restAPIKey).searchPlaces(query: q, near: near)
-            results = places
+            results = rankPlaces(places, query: q, near: near)
         } catch {
             results = []
             errorMessage = error.localizedDescription
@@ -95,6 +95,52 @@ final class KakaoNavigationViewModel: ObservableObject {
     func distanceToNextGuideMeters() -> Int? {
         guard let vehicleCoordinate, let guide = nextGuide else { return nil }
         return Int(distanceMeters(vehicleCoordinate, guide.coordinate).rounded())
+    }
+
+    private func rankPlaces(_ places: [KakaoPlace], query: String, near: CLLocationCoordinate2D?) -> [KakaoPlace] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty { return places }
+
+        // Heuristic re-ranking on top of Kakao's API results.
+        // Primary goal: "강남역" should prefer actual station/POI over unrelated businesses.
+        func score(_ p: KakaoPlace) -> Int {
+            var s = 0
+            let name = p.name.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if name == q { s += 400 }
+            if name.hasPrefix(q) { s += 180 }
+
+            // If the query looks like a station, boost subway/transport category results.
+            let looksLikeStation = q.hasSuffix("역") || q.contains("역")
+            if looksLikeStation {
+                // Kakao category group codes (commonly): SW8=subway station.
+                if p.categoryGroupCode == "SW8" { s += 260 }
+                if (p.categoryName ?? "").contains("지하철") || (p.categoryName ?? "").contains("역") {
+                    s += 90
+                }
+            }
+
+            // If near is available, prefer closer results in a coarse way.
+            if let near {
+                let d = distanceMeters(near, p.coordinate)
+                if d < 500 { s += 80 }
+                else if d < 1_500 { s += 55 }
+                else if d < 5_000 { s += 25 }
+            }
+
+            return s
+        }
+
+        return places.sorted { a, b in
+            let sa = score(a)
+            let sb = score(b)
+            if sa != sb { return sa > sb }
+            // Tie-breaker: if near exists, closer first.
+            if let near {
+                return distanceMeters(near, a.coordinate) < distanceMeters(near, b.coordinate)
+            }
+            return a.name < b.name
+        }
     }
 
     private func client(restAPIKey: String) -> KakaoAPIClient {
