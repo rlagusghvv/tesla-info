@@ -1452,7 +1452,7 @@ private extension KakaoNavigationPaneView {
 }
 
 @MainActor
-final class SpeedCameraAlertEngine: ObservableObject {
+final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     @Published private(set) var latestAlertText: String?
 
     private let thresholdsMeters = [1000, 500, 300, 150]
@@ -1461,20 +1461,28 @@ final class SpeedCameraAlertEngine: ObservableObject {
     private var beepPlayer: AVAudioPlayerNode?
     private var beepFormat: AVAudioFormat?
     private var didConfigureAudioSession = false
+    private var deactivateAudioTask: Task<Void, Never>?
     private var currentGuideID: String?
     private var firedThresholds: Set<Int> = []
     private var lastSpokenAt: Date = .distantPast
     private var didWarnOverspeedForCurrentGuide = false
+    private var lastOverspeedBeepAt: Date = .distantPast
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
 
     func reset() {
         currentGuideID = nil
         firedThresholds.removeAll()
         latestAlertText = nil
         didWarnOverspeedForCurrentGuide = false
+        lastOverspeedBeepAt = .distantPast
     }
 
     func playDebugTest() {
-        configureAudioSessionIfNeeded()
+        activateAudioSession()
         playDoubleBeep()
 
         let utterance = AVSpeechUtterance(string: "서브대시 음성 테스트입니다.")
@@ -1517,9 +1525,15 @@ final class SpeedCameraAlertEngine: ObservableObject {
             let roundedSpeed = Int(max(0, speedKph.rounded()))
             if roundedSpeed >= limit + 3 {
                 latestAlertText = "과속! 제한 \(limit) · \(distanceMeters)m"
+                let now = Date()
+                if now.timeIntervalSince(lastOverspeedBeepAt) >= 2.2 {
+                    lastOverspeedBeepAt = now
+                    activateAudioSession()
+                    playDoubleBeep()
+                    scheduleDeactivateAudioSession(after: 1.2)
+                }
                 if !didWarnOverspeedForCurrentGuide {
                     didWarnOverspeedForCurrentGuide = true
-                    playDoubleBeep()
                 }
             }
         }
@@ -1536,7 +1550,7 @@ final class SpeedCameraAlertEngine: ObservableObject {
         guard now.timeIntervalSince(lastSpokenAt) >= 5 else { return }
         lastSpokenAt = now
 
-        configureAudioSessionIfNeeded()
+        activateAudioSession()
 
         let roundedSpeed = Int(max(0, speedKph.rounded()))
         var text = "과속 단속 카메라 \(stage)미터 앞입니다"
@@ -1551,20 +1565,57 @@ final class SpeedCameraAlertEngine: ObservableObject {
         synthesizer.speak(utterance)
     }
 
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            scheduleDeactivateAudioSession(after: 0.6)
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            scheduleDeactivateAudioSession(after: 0.6)
+        }
+    }
+
     private func configureAudioSessionIfNeeded() {
         guard !didConfigureAudioSession else { return }
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, options: [.duckOthers, .mixWithOthers])
-            try session.setActive(true)
+            try session.setCategory(.playback, mode: .voicePrompt, options: [.duckOthers, .mixWithOthers])
             didConfigureAudioSession = true
         } catch {
             // Non-fatal: speech can still work with the default session.
         }
     }
 
-    private func playDoubleBeep() {
+    private func activateAudioSession() {
         configureAudioSessionIfNeeded()
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            // Non-fatal
+        }
+    }
+
+    private func scheduleDeactivateAudioSession(after seconds: Double) {
+        deactivateAudioTask?.cancel()
+        let nanos = UInt64(max(0.2, seconds) * 1_000_000_000.0)
+        deactivateAudioTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: nanos)
+            guard !self.synthesizer.isSpeaking else {
+                self.scheduleDeactivateAudioSession(after: 0.8)
+                return
+            }
+            do {
+                try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+            } catch {
+                // Non-fatal
+            }
+        }
+    }
+
+    private func playDoubleBeep() {
+        activateAudioSession()
 
         let engine: AVAudioEngine
         let player: AVAudioPlayerNode

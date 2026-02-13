@@ -18,6 +18,9 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
     @Published private(set) var latestSpeedKph: Double?
     @Published private(set) var lastUpdatedAt: Date = .distantPast
 
+    // Called after each CLLocation update (used to drive alerts even when UI isn't actively rendering).
+    var onTick: (() -> Void)?
+
     private let manager = CLLocationManager()
     private var hasStartedUpdates = false
     private var hasRequestedAlwaysAuthorization = false
@@ -133,6 +136,7 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
                 }
             }
             lastUpdatedAt = now
+            onTick?()
         }
     }
 
@@ -172,7 +176,6 @@ struct CarModeView: View {
 
     private let mediaToolbarHeight: CGFloat = 64
     private let mediaMinSize = CGSize(width: 330, height: 220)
-    private let regularTopInset: CGFloat = 22
     private let phoneLayoutMaxWidth: CGFloat = 430
     private let useUltraLiteAssist = true
 
@@ -298,7 +301,7 @@ struct CarModeView: View {
 
                 content
                     .padding(.horizontal, isFullscreenNavi ? 0 : 16)
-                    .padding(.top, isFullscreenNavi ? 0 : max(regularTopInset, root.safeAreaInsets.top + 14))
+                    .padding(.top, isFullscreenNavi ? 0 : max(12, root.safeAreaInsets.top + 6))
                     .padding(.bottom, isFullscreenNavi ? 0 : max(12, root.safeAreaInsets.bottom + 8))
 
                 if !teslaAuth.isSignedIn {
@@ -343,11 +346,13 @@ struct CarModeView: View {
         .onAppear {
             viewModel.start()
             deviceLocationTracker.start()
+            deviceLocationTracker.onTick = { handleUltraLiteAssistTickLightweight() }
             Task { await PublicSpeedCameraStore.shared.prewarm() }
         }
         .onDisappear {
             viewModel.stop()
             deviceLocationTracker.stop()
+            deviceLocationTracker.onTick = nil
         }
         .onChange(of: scenePhase) { _, next in
             switch next {
@@ -619,6 +624,21 @@ struct CarModeView: View {
     }
 
     private func handleUltraLiteAssistTick() {
+        updateAssistFromGPS()
+
+        guard viewModel.snapshot.navigation != nil else { return }
+        Task {
+            await syncRouteFromTeslaIfNeeded(force: false)
+            await naviModel.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: false)
+            updateSpeedCameraAlerts()
+        }
+    }
+
+    private func handleUltraLiteAssistTickLightweight() {
+        updateAssistFromGPS()
+    }
+
+    private func updateAssistFromGPS() {
         // GPS-only: keep the last coordinate if GPS is temporarily unavailable.
         if let current = deviceLocationTracker.currentVehicleLocation {
             naviModel.updateVehicle(location: current, speedKph: effectiveNaviSpeedKph)
@@ -629,12 +649,6 @@ struct CarModeView: View {
             )
         }
         updateSpeedCameraAlerts()
-
-        Task {
-            await syncRouteFromTeslaIfNeeded(force: false)
-            await naviModel.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: false)
-            updateSpeedCameraAlerts()
-        }
     }
 
     private func handleTeslaNavigationChanged() {
