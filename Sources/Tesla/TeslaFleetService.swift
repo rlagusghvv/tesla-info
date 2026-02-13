@@ -1286,15 +1286,10 @@ private enum TeslaMapper {
         let trafficDelayMinutes = drive.activeRouteTrafficMinutesDelay.map { Int(max(0, $0.rounded())) }
         let energyAtArrivalPercent = drive.activeRouteEnergyAtArrival
 
-        let hasAnyValue =
-            !(destinationName ?? "").isEmpty ||
-            destination != nil ||
-            remainingKm != nil ||
-            etaMinutes != nil ||
-            trafficDelayMinutes != nil ||
-            energyAtArrivalPercent != nil
-
-        guard hasAnyValue else { return nil }
+        // Tesla can keep active_route_* fields populated even after navigation ends.
+        // Treat the route as active only when there is meaningful remaining distance/time.
+        let isLikelyActive = (remainingKm ?? 0) > 0.05 || (etaMinutes ?? 0) > 0
+        guard isLikelyActive else { return nil }
 
         return NavigationState(
             destinationName: (destinationName?.isEmpty == false) ? destinationName : nil,

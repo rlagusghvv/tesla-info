@@ -184,6 +184,7 @@ actor KakaoAPIClient {
         let vertexes = roads.flatMap { $0.vertexes ?? [] }
         // Rendering a huge polyline can freeze MapKit on smaller iPads. Keep it lightweight for MVP.
         let polyline = Self.vertexesToCoordinates(vertexes, maxPoints: 450)
+        let polylineDense = Self.vertexesToCoordinates(vertexes, maxPoints: 1800)
 
         let guides: [KakaoGuide] = (first.sections?.flatMap { $0.guides ?? [] } ?? []).compactMap { g -> KakaoGuide? in
             guard let x = g.x, let y = g.y else { return nil }
@@ -203,6 +204,7 @@ actor KakaoAPIClient {
 
         return KakaoRoute(
             polyline: polyline,
+            polylineDense: polylineDense.isEmpty ? polyline : polylineDense,
             guides: guides,
             distanceMeters: first.summary?.distance,
             durationSeconds: first.summary?.duration
