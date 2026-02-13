@@ -1,5 +1,6 @@
 import CoreLocation
 import SwiftUI
+import UIKit
 import WebKit
 
 private final class WebViewStore: ObservableObject {
@@ -61,8 +62,9 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
     var currentVehicleLocation: VehicleLocation? {
         guard let location = latestLocation else { return nil }
         let age = Date().timeIntervalSince(lastUpdatedAt)
-        guard age <= 5 else { return nil }
-        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 80 else { return nil }
+        guard age <= 12 else { return nil }
+        // Be slightly lenient so route sync can start even when GPS is not perfectly locked.
+        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 150 else { return nil }
 
         let coordinate = location.coordinate
         guard (-90.0...90.0).contains(coordinate.latitude) else { return nil }
@@ -74,7 +76,7 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
     var currentSpeedKph: Double? {
         guard let speed = latestSpeedKph else { return nil }
         let age = Date().timeIntervalSince(lastUpdatedAt)
-        guard age <= 5 else { return nil }
+        guard age <= 12 else { return nil }
         return max(0, speed)
     }
 
@@ -131,6 +133,7 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
 
 struct CarModeView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var networkMonitor: NetworkMonitor
     @EnvironmentObject private var teslaAuth: TeslaAuthStore
@@ -181,6 +184,47 @@ struct CarModeView: View {
             return "아이폰 GPS"
         }
         return "차량 텔레메트리"
+    }
+
+    private var effectiveLocationText: String {
+        if let gps = deviceLocationTracker.currentVehicleLocation, gps.isValid {
+            return String(format: "%.5f, %.5f", gps.lat, gps.lon)
+        }
+        let loc = viewModel.snapshot.vehicle.location
+        if loc.isValid {
+            return String(format: "%.5f, %.5f", loc.lat, loc.lon)
+        }
+        return "Unknown (enable Location)"
+    }
+
+    private var speedCameraStatusText: String? {
+        guard viewModel.snapshot.navigation != nil else { return nil }
+
+        let key = kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if key.isEmpty {
+            return "단속 카메라: Kakao REST 키 필요 (Account에서 설정)"
+        }
+        if !effectiveNaviLocation.isValid {
+            return "단속 카메라: 위치 없음 (설정에서 위치 권한 허용 필요)"
+        }
+        if naviModel.route == nil {
+            return "단속 카메라: 경로 동기화 중..."
+        }
+        if naviModel.nextSpeedCameraGuide == nil {
+            return "단속 카메라: 이 경로에서 찾지 못함 (근처 검색 중)"
+        }
+        if let meters = naviModel.distanceToNextSpeedCameraMeters() {
+            if let limit = naviModel.nextSpeedCameraLimitKph, limit > 0 {
+                return "단속 카메라: \(meters)m · 제한 \(limit)"
+            }
+            return "단속 카메라: \(meters)m"
+        }
+        return "단속 카메라: 계산 중"
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        openURL(url)
     }
 
     var body: some View {
@@ -264,6 +308,12 @@ struct CarModeView: View {
         }
         .onChange(of: deviceLocationTracker.lastUpdatedAt) { _, _ in
             guard useUltraLiteAssist else { return }
+            handleUltraLiteAssistTick()
+        }
+        .onChange(of: viewModel.snapshot.vehicle.location) { _, _ in
+            // If iPhone GPS is unavailable, fall back to telemetry updates to keep route sync alive.
+            guard useUltraLiteAssist else { return }
+            guard deviceLocationTracker.currentVehicleLocation == nil else { return }
             handleUltraLiteAssistTick()
         }
         .onChange(of: viewModel.snapshot.navigation) { _, _ in
@@ -445,11 +495,11 @@ struct CarModeView: View {
             }
 
             HStack(spacing: 8) {
-                Text("아이폰 GPS 기반")
+                Text("위치: \(effectiveLocationSourceLabel)")
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.black.opacity(0.56))
                 Spacer(minLength: 8)
-                Text(viewModel.locationText)
+                Text(effectiveLocationText)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(Color.black.opacity(0.46))
                     .lineLimit(1)
@@ -459,8 +509,8 @@ struct CarModeView: View {
                 Text(cameraText)
                     .font(.system(size: 16, weight: .heavy, design: .rounded))
                     .foregroundStyle(Color(red: 0.92, green: 0.62, blue: 0.10))
-            } else if viewModel.snapshot.navigation != nil {
-                Text("단속 카메라: 경로 동기화 대기 중")
+            } else if let status = speedCameraStatusText {
+                Text(status)
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.black.opacity(0.55))
             }
@@ -498,6 +548,15 @@ struct CarModeView: View {
                 }
                 .buttonStyle(SecondaryCarButtonStyle(fontSize: 14, height: 44, cornerRadius: 12))
                 .disabled(!networkMonitor.isConnected || viewModel.isCommandRunning)
+
+                if deviceLocationTracker.authorizationStatus == .denied || deviceLocationTracker.authorizationStatus == .restricted {
+                    Button {
+                        openAppSettings()
+                    } label: {
+                        Label("Location", systemImage: "location.slash")
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 14, height: 44, cornerRadius: 12))
+                }
             }
         }
         .padding(12)
@@ -585,7 +644,10 @@ struct CarModeView: View {
 
         let key = kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
-        guard let origin = naviModel.vehicleCoordinate else { return }
+        let origin = naviModel.vehicleCoordinate
+            ?? deviceLocationTracker.currentVehicleLocation?.coordinate
+            ?? (viewModel.snapshot.vehicle.location.isValid ? viewModel.snapshot.vehicle.location.coordinate : nil)
+        guard let origin else { return }
 
         await naviModel.startRoute(restAPIKey: key, origin: origin, destination: destination.coordinate)
         if naviModel.route != nil {

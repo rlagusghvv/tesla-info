@@ -294,7 +294,7 @@ actor TeslaFleetService {
             }
 
             if wakeInfo.ok, let latest, !latest.vehicle.location.isValid {
-                message = "Wake sent, but location is still unavailable."
+                message = "Wake sent, but Fleet location is still unavailable."
             }
 
             let snapshot = latest.map { snap in
