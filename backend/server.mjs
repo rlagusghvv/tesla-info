@@ -114,6 +114,7 @@ if (state.mode === 'teslamate') {
 }
 
 let teslaMateAuthRepairInFlight = null;
+let fleetUserTokenRefreshInFlight = null;
 
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
@@ -475,35 +476,86 @@ function mapTeslaVehicleDataToSnapshot(vehicleData) {
   };
 }
 
+function createFleetApiError(status, parsed, bodyText) {
+  const msg = parsed?.error || parsed?.message || bodyText || `HTTP ${status}`;
+  const err = new Error(`Fleet API error (${status}): ${msg}`);
+  err.status = status;
+  err.body = parsed ?? null;
+  return err;
+}
+
+async function refreshFleetUserTokenOnce(reason) {
+  if (fleetUserTokenRefreshInFlight) {
+    return fleetUserTokenRefreshInFlight;
+  }
+
+  fleetUserTokenRefreshInFlight = (async () => {
+    try {
+      const refreshed = await refreshFleetUserToken();
+      console.log('[fleet-auth] refreshed user token', {
+        reason: String(reason || 'unknown'),
+        expiresAt: refreshed.expiresAt || null
+      });
+      return refreshed;
+    } finally {
+      fleetUserTokenRefreshInFlight = null;
+    }
+  })();
+
+  return fleetUserTokenRefreshInFlight;
+}
+
 async function fetchTeslaJson(pathname, method = 'GET', body = null) {
   if (!TESLA_USER_ACCESS_TOKEN) {
     throw new Error('TESLA_USER_ACCESS_TOKEN is missing.');
   }
 
-  const url = `${TESLA_FLEET_API_BASE}${pathname}`;
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${TESLA_USER_ACCESS_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
+  const requestOnce = async () => {
+    const url = `${TESLA_FLEET_API_BASE}${pathname}`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${TESLA_USER_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
 
-  const bodyText = await res.text();
-  let parsed;
-  try {
-    parsed = bodyText ? JSON.parse(bodyText) : {};
-  } catch {
-    parsed = { raw: bodyText };
+    const bodyText = await res.text();
+    let parsed;
+    try {
+      parsed = bodyText ? JSON.parse(bodyText) : {};
+    } catch {
+      parsed = { raw: bodyText };
+    }
+
+    return { res, bodyText, parsed };
+  };
+
+  const first = await requestOnce();
+  if (first.res.ok) {
+    return { parsed: first.parsed, status: first.res.status };
   }
 
-  if (!res.ok) {
-    const msg = parsed?.error || parsed?.message || bodyText || `HTTP ${res.status}`;
-    throw new Error(`Fleet API error (${res.status}): ${msg}`);
+  // Auto refresh token on 401 once, then retry the original request.
+  if (first.res.status === 401 && TESLA_USER_REFRESH_TOKEN && TESLA_CLIENT_ID) {
+    try {
+      await refreshFleetUserTokenOnce(`http401:${method}:${pathname}`);
+    } catch (refreshError) {
+      const base = createFleetApiError(first.res.status, first.parsed, first.bodyText);
+      const refreshMessage = refreshError instanceof Error ? refreshError.message : String(refreshError);
+      base.message = `${base.message} | refresh failed: ${refreshMessage}`;
+      throw base;
+    }
+
+    const retry = await requestOnce();
+    if (retry.res.ok) {
+      return { parsed: retry.parsed, status: retry.res.status };
+    }
+    throw createFleetApiError(retry.res.status, retry.parsed, retry.bodyText);
   }
 
-  return { parsed, status: res.status };
+  throw createFleetApiError(first.res.status, first.parsed, first.bodyText);
 }
 
 async function fetchTeslaVehicles() {
@@ -805,9 +857,9 @@ async function forwardTeslaCommand(command, payload = null) {
         } catch (error) {
           last = {
             ok: false,
-            status: 502,
+            status: Number(error?.status || 0) || 502,
             message: error instanceof Error ? error.message : 'Navigation command failed',
-            body: null
+            body: error?.body || null
           };
         }
       }
@@ -837,9 +889,9 @@ async function forwardTeslaCommand(command, payload = null) {
   } catch (error) {
     return {
       ok: false,
-      status: 502,
+      status: Number(error?.status || 0) || 502,
       message: error instanceof Error ? error.message : 'Fleet command failed',
-      body: null
+      body: error?.body || null
     };
   }
 }
