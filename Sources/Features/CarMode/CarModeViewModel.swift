@@ -22,9 +22,12 @@ final class CarModeViewModel: ObservableObject {
 
     private let service: TelemetryService
     private var pollTask: Task<Void, Never>?
+    private var navPollTask: Task<Void, Never>?
     private var isRefreshing = false
     private var consecutiveFailures = 0
     private var lastErrorFingerprint = ""
+    private var navPollIntervalSeconds: Int = 4
+    private var navConsecutiveFailures = 0
 
     init(service: TelemetryService = TelemetryService()) {
         self.service = service
@@ -32,11 +35,16 @@ final class CarModeViewModel: ObservableObject {
 
     deinit {
         pollTask?.cancel()
+        navPollTask?.cancel()
     }
 
     func start() {
-        guard pollTask == nil else { return }
+        startFullPollingIfNeeded()
+        startNavPollingIfNeeded()
+    }
 
+    private func startFullPollingIfNeeded() {
+        guard pollTask == nil else { return }
         pollTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
@@ -49,9 +57,38 @@ final class CarModeViewModel: ObservableObject {
         }
     }
 
+    private func startNavPollingIfNeeded() {
+        guard navPollTask == nil else { return }
+
+        navPollTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                // Only accelerate when we have an active Tesla route.
+                guard AppConfig.telemetrySource == .directFleet, self.snapshot.navigation != nil else {
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    continue
+                }
+
+                // Avoid overlapping with the heavy snapshot refresh (and commands).
+                if self.isRefreshing || self.isCommandRunning {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    continue
+                }
+
+                await self.refreshNavigationFast()
+
+                let seconds = max(3, min(90, self.navPollIntervalSeconds))
+                try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+            }
+        }
+    }
+
     func stop() {
         pollTask?.cancel()
         pollTask = nil
+        navPollTask?.cancel()
+        navPollTask = nil
     }
 
     func refresh() async {
@@ -75,7 +112,11 @@ final class CarModeViewModel: ObservableObject {
             consecutiveFailures = 0
             lastSuccessfulUpdateAt = Date()
 
-            if latest.vehicle.speedKph > 1 {
+            // When a route is active we run an additional lightweight drive_state poll for nav updates,
+            // so keep the heavy snapshot polling slower to reduce rate-limit risk.
+            if latest.navigation != nil {
+                pollIntervalSeconds = 20
+            } else if latest.vehicle.speedKph > 1 {
                 pollIntervalSeconds = 12
             } else {
                 pollIntervalSeconds = 20
@@ -107,6 +148,54 @@ final class CarModeViewModel: ObservableObject {
 
             // Exponential-ish backoff to keep the UI responsive when the API is failing.
             pollIntervalSeconds = min(90, 20 + (consecutiveFailures * 10))
+        }
+    }
+
+    private func refreshNavigationFast() async {
+        guard AppConfig.telemetrySource == .directFleet else { return }
+        guard !isRefreshing else { return }
+        guard !isCommandRunning else { return }
+
+        do {
+            let nav = try await service.fetchNavigationStateFast()
+            navConsecutiveFailures = 0
+            navPollIntervalSeconds = 4
+
+            if nav != snapshot.navigation {
+                snapshot = VehicleSnapshot(
+                    source: snapshot.source,
+                    mode: snapshot.mode,
+                    updatedAt: ISO8601DateFormatter().string(from: Date()),
+                    lastCommand: snapshot.lastCommand,
+                    navigation: nav,
+                    vehicle: snapshot.vehicle
+                )
+            }
+        } catch {
+            if shouldIgnore(error) {
+                return
+            }
+
+            navConsecutiveFailures += 1
+
+            if let fleetError = error as? TeslaFleetError {
+                switch fleetError {
+                case .rateLimited(let retryAfterSeconds):
+                    let retry = max(8, retryAfterSeconds ?? 12)
+                    navPollIntervalSeconds = max(navPollIntervalSeconds, retry)
+                    // Back off heavy polling as well when we hit 429.
+                    pollIntervalSeconds = max(pollIntervalSeconds, retryAfterSeconds ?? 30)
+                    return
+                case .unauthorized:
+                    navPollIntervalSeconds = 45
+                    return
+                default:
+                    break
+                }
+            }
+
+            // Gradual backoff for transient errors (wifi hops, tunnel flaps, etc).
+            navPollIntervalSeconds = min(30, 4 + (navConsecutiveFailures * 3))
         }
     }
 
@@ -345,6 +434,10 @@ final class CarModeViewModel: ObservableObject {
         let current = snapshot
 
         if current.source != latest.source || current.mode != latest.mode {
+            return true
+        }
+
+        if current.navigation != latest.navigation {
             return true
         }
 

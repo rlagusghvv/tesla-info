@@ -128,6 +128,15 @@ actor TeslaFleetService {
         return mapped
     }
 
+    // Faster, smaller polling path for navigation state.
+    // We only need drive_state.active_route_* fields to detect route changes and keep ETA/remaining fresh.
+    func fetchNavigationStateFast() async throws -> NavigationState? {
+        let vehicle = try await resolveVehicle()
+        let driveData = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/data_request/drive_state", method: "GET")
+        let driveEnvelope = try decoder.decode(TeslaDriveStateEnvelope.self, from: driveData)
+        return TeslaMapper.mapNavigationState(from: driveEnvelope.response)
+    }
+
     func testVehiclesCount() async throws -> Int {
         let diagnostics = try await testVehiclesDiagnostics()
         return diagnostics.count
@@ -1260,7 +1269,7 @@ private enum TeslaMapper {
         return snapshot
     }
 
-    private static func mapNavigationState(from drive: TeslaDriveState?) -> NavigationState? {
+    fileprivate static func mapNavigationState(from drive: TeslaDriveState?) -> NavigationState? {
         guard let drive else { return nil }
 
         let destinationName = drive.activeRouteDestination?.trimmingCharacters(in: .whitespacesAndNewlines)

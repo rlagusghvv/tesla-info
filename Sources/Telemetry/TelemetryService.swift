@@ -22,6 +22,17 @@ actor TelemetryService {
         }
     }
 
+    func fetchNavigationStateFast() async throws -> NavigationState? {
+        switch AppConfig.telemetrySource {
+        case .directFleet:
+            return try await TeslaFleetService.shared.fetchNavigationStateFast()
+        case .backend:
+            // Backend mode doesn't have a dedicated lightweight endpoint yet.
+            // Keep behavior stable (no extra backend polling) until we explicitly add one.
+            return nil
+        }
+    }
+
     func sendCommand(_ command: String, payload: [String: Any]? = nil) async throws -> CommandResponse {
         switch AppConfig.telemetrySource {
         case .directFleet:
