@@ -134,11 +134,13 @@ struct CarModeView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var networkMonitor: NetworkMonitor
     @EnvironmentObject private var teslaAuth: TeslaAuthStore
+    @EnvironmentObject private var kakaoConfig: KakaoConfigStore
     @StateObject private var viewModel = CarModeViewModel()
     @StateObject private var naviModel = KakaoNavigationViewModel()
     @StateObject private var deviceLocationTracker = DeviceLocationTracker()
     @State private var naviHUDVisible: Bool = true
     @State private var showChromeInNavi: Bool = false
+    @State private var showAccountSheet: Bool = false
 
     @StateObject private var mediaWebViewStore = WebViewStore()
     @State private var mediaOverlaySize: CGSize = .zero
@@ -209,7 +211,7 @@ struct CarModeView: View {
                             .foregroundStyle(Color.black.opacity(0.64))
 
                         Button {
-                            router.showGuide()
+                            showAccountSheet = true
                         } label: {
                             Label("Go to Tesla Account", systemImage: "person.crop.circle")
                         }
@@ -229,6 +231,13 @@ struct CarModeView: View {
                     .padding(24)
                 }
             }
+        }
+        .sheet(isPresented: $showAccountSheet) {
+            ConnectionGuideView()
+                .environmentObject(networkMonitor)
+                .environmentObject(router)
+                .environmentObject(teslaAuth)
+                .environmentObject(kakaoConfig)
         }
         .onAppear {
             viewModel.start()
@@ -358,7 +367,7 @@ struct CarModeView: View {
                     toggleChromeInNavi()
                 }
                 headerIconButton(systemImage: "person.crop.circle") {
-                    router.showGuide()
+                    showAccountSheet = true
                 }
             }
             .padding(.trailing, 12)
@@ -489,7 +498,7 @@ struct CarModeView: View {
                 .disabled(!networkMonitor.isConnected)
 
                 headerIconButton(systemImage: "person.crop.circle") {
-                    router.showGuide()
+                    showAccountSheet = true
                 }
             }
 
@@ -1092,7 +1101,7 @@ struct CarModeView: View {
             controlButton(title: "A/C OFF", symbol: "snowflake", command: "auto_conditioning_stop", variant: .compact)
             controlButton(title: "Wake", symbol: "bolt.fill", command: "wake_up", variant: .compact)
             Button {
-                router.showGuide()
+                showAccountSheet = true
             } label: {
                 Label("Account", systemImage: "person.crop.circle")
             }
