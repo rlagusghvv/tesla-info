@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +13,11 @@ const __dirname = path.dirname(__filename);
 const ROOT_ENV_PATH = path.resolve(__dirname, '../.env');
 
 loadEnvFile(ROOT_ENV_PATH);
+
+const SPEED_CAMERA_DATA_PATH = path.resolve(
+  __dirname,
+  process.env.SPEED_CAMERA_DATA_PATH || './data/speed_cameras_kr.min.json'
+);
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -1017,6 +1023,43 @@ async function route(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/vehicle/latest') {
     sendJson(res, 200, snapshotResponse());
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/data/speed_cameras_kr') {
+    try {
+      const stat = await fs.stat(SPEED_CAMERA_DATA_PATH);
+      const etag = `"${stat.size}-${Math.floor(stat.mtimeMs)}"`;
+
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, {
+          ETag: etag,
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token'
+        });
+        res.end();
+        return;
+      }
+
+      const raw = await fs.readFile(SPEED_CAMERA_DATA_PATH, 'utf8');
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Length': Buffer.byteLength(raw),
+        'Cache-Control': 'public, max-age=86400',
+        ETag: etag,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token'
+      });
+      res.end(raw);
+    } catch (error) {
+      sendJson(res, 404, {
+        ok: false,
+        message:
+          'Speed camera dataset not found on backend. Run backend/scripts/update_speed_cameras_kr.mjs and retry.'
+      });
+    }
     return;
   }
 

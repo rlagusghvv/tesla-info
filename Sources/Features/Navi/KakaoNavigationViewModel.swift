@@ -43,6 +43,7 @@ final class KakaoNavigationViewModel: ObservableObject {
     @Published private(set) var followPulse: Int = 0
     @Published private(set) var zoomOffset: Int = 0
     @Published private(set) var zoomRevision: Int = 0
+    @Published private(set) var nextSpeedCameraLimitKph: Int?
     @Published private(set) var homeDestination: SavedDestination?
     @Published private(set) var workDestination: SavedDestination?
 
@@ -55,6 +56,8 @@ final class KakaoNavigationViewModel: ObservableObject {
     private var isRefreshingSpeedCameras = false
     private var lastSpeedCameraRefreshAt: Date = .distantPast
     private var lastSpeedCameraRefreshCoordinate: CLLocationCoordinate2D?
+    private var lastNextSpeedCameraGuideIDForLimit: String?
+    private var nextSpeedCameraLimitTask: Task<Void, Never>?
 
     init() {
         loadFavorites()
@@ -68,6 +71,7 @@ final class KakaoNavigationViewModel: ObservableObject {
 
         vehicleCoordinate = nextCoordinate
         vehicleSpeedKph = speedKph
+        updateNextSpeedCameraLimitIfNeeded()
     }
 
     func clearRoute() {
@@ -76,6 +80,10 @@ final class KakaoNavigationViewModel: ObservableObject {
         speedCameraRevision += 1
         routeRevision += 1
         errorMessage = nil
+        nextSpeedCameraLimitKph = nil
+        lastNextSpeedCameraGuideIDForLimit = nil
+        nextSpeedCameraLimitTask?.cancel()
+        nextSpeedCameraLimitTask = nil
     }
 
     func saveFavorite(_ slot: FavoriteSlot, place: KakaoPlace) {
@@ -160,11 +168,41 @@ final class KakaoNavigationViewModel: ObservableObject {
             isFollowModeEnabled = true
             followPulse += 1
             await refreshSpeedCameraPOIsIfNeeded(restAPIKey: restAPIKey, force: true)
+            updateNextSpeedCameraLimitIfNeeded()
         } catch {
             route = nil
             speedCameraPOIGuides = []
             speedCameraRevision += 1
             errorMessage = error.localizedDescription
+            nextSpeedCameraLimitKph = nil
+            lastNextSpeedCameraGuideIDForLimit = nil
+            nextSpeedCameraLimitTask?.cancel()
+            nextSpeedCameraLimitTask = nil
+        }
+    }
+
+    private func updateNextSpeedCameraLimitIfNeeded() {
+        guard let guide = nextSpeedCameraGuide else {
+            nextSpeedCameraLimitKph = nil
+            lastNextSpeedCameraGuideIDForLimit = nil
+            nextSpeedCameraLimitTask?.cancel()
+            nextSpeedCameraLimitTask = nil
+            return
+        }
+
+        if lastNextSpeedCameraGuideIDForLimit == guide.id {
+            return
+        }
+        lastNextSpeedCameraGuideIDForLimit = guide.id
+        nextSpeedCameraLimitKph = nil
+
+        nextSpeedCameraLimitTask?.cancel()
+        nextSpeedCameraLimitTask = Task(priority: .utility) { [guideID = guide.id, coordinate = guide.coordinate] in
+            let limit = await PublicSpeedCameraStore.shared.lookupLimit(near: coordinate, withinMeters: 90)
+            if Task.isCancelled { return }
+            // Guard against stale async update if the "next" camera changed mid-await.
+            if self.lastNextSpeedCameraGuideIDForLimit != guideID { return }
+            self.nextSpeedCameraLimitKph = limit
         }
     }
 
@@ -497,5 +535,231 @@ final class KakaoNavigationViewModel: ObservableObject {
             }
         }
         return false
+    }
+}
+
+// MARK: - Public Speed Camera Dataset (data.go.kr)
+
+struct PublicSpeedCameraDataset: Codable {
+    let schemaVersion: Int?
+    let source: String?
+    let updatedAt: String?
+    let count: Int?
+    let cameras: [PublicSpeedCamera]
+}
+
+struct PublicSpeedCamera: Codable {
+    let id: String
+    let lat: Double
+    let lon: Double
+    let limitKph: Int?
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+}
+
+actor PublicSpeedCameraStore {
+    static let shared = PublicSpeedCameraStore()
+
+    private let session: URLSession
+    private let decoder = JSONDecoder()
+
+    private var isLoaded = false
+    private var cameras: [PublicSpeedCamera] = []
+    private var index = GridIndex.empty
+
+    private let etagKey = "public_speed_cameras.kr.etag"
+    private let lastFetchKey = "public_speed_cameras.kr.last_fetch_at"
+
+    init() {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 25
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.waitsForConnectivity = false
+        self.session = URLSession(configuration: config)
+    }
+
+    func prewarm() async {
+        await ensureLoaded()
+        // Keep the dataset fresh, but never block UI on it.
+        Task.detached(priority: .utility) {
+            _ = try? await PublicSpeedCameraStore.shared.refreshFromBackendIfNeeded(force: false)
+        }
+    }
+
+    func lookupLimit(near coordinate: CLLocationCoordinate2D, withinMeters: Double = 85) async -> Int? {
+        await ensureLoaded()
+        return index.nearest(to: coordinate, withinMeters: withinMeters)?.camera.limitKph
+    }
+
+    func refreshFromBackendIfNeeded(force: Bool) async throws -> Bool {
+        let now = Date()
+        if !force, let lastFetch = UserDefaults.standard.object(forKey: lastFetchKey) as? Date {
+            if now.timeIntervalSince(lastFetch) < (12 * 60 * 60) {
+                return false
+            }
+        }
+
+        let url = AppConfig.backendBaseURL.appendingPathComponent("api/data/speed_cameras_kr")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let etag = UserDefaults.standard.string(forKey: etagKey), !etag.isEmpty {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        if http.statusCode == 304 {
+            UserDefaults.standard.set(now, forKey: lastFetchKey)
+            return false
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let message = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            throw NSError(domain: "PublicSpeedCameraStore", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+
+        let decoded = try decoder.decode(PublicSpeedCameraDataset.self, from: data)
+        let next = decoded.cameras
+
+        cameras = next
+        index = GridIndex.build(from: next)
+        isLoaded = true
+
+        if let newEtag = http.value(forHTTPHeaderField: "ETag"), !newEtag.isEmpty {
+            UserDefaults.standard.set(newEtag, forKey: etagKey)
+        }
+        UserDefaults.standard.set(now, forKey: lastFetchKey)
+
+        try? persistCache(data: data)
+        return true
+    }
+
+    private func ensureLoaded() async {
+        guard !isLoaded else { return }
+
+        if let cached = loadCache() {
+            cameras = cached
+            index = GridIndex.build(from: cached)
+            isLoaded = true
+            return
+        }
+
+        // No cache: mark as loaded (empty) and let refresh happen asynchronously.
+        cameras = []
+        index = .empty
+        isLoaded = true
+    }
+
+    private func cacheFileURL() -> URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("speed_cameras_kr.min.json")
+    }
+
+    private func loadCache() -> [PublicSpeedCamera]? {
+        guard let url = cacheFileURL() else { return nil }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let decoded = try? decoder.decode(PublicSpeedCameraDataset.self, from: data) else { return nil }
+        return decoded.cameras
+    }
+
+    private func persistCache(data: Data) throws {
+        guard let url = cacheFileURL() else { return }
+        try data.write(to: url, options: [.atomic])
+    }
+}
+
+private struct GridIndex {
+    let cellSize: Double
+    let buckets: [UInt64: [PublicSpeedCamera]]
+
+    static let empty = GridIndex(cellSize: 0.01, buckets: [:])
+
+    static func build(from cameras: [PublicSpeedCamera]) -> GridIndex {
+        guard !cameras.isEmpty else { return .empty }
+        var bucketed: [UInt64: [PublicSpeedCamera]] = [:]
+        bucketed.reserveCapacity(min(4096, cameras.count / 3))
+        let cellSize = Self.empty.cellSize
+
+        for camera in cameras {
+            let key = cellKey(lat: camera.lat, lon: camera.lon, cellSize: cellSize)
+            bucketed[key, default: []].append(camera)
+        }
+
+        return GridIndex(cellSize: cellSize, buckets: bucketed)
+    }
+
+    func nearest(to coordinate: CLLocationCoordinate2D, withinMeters: Double) -> (camera: PublicSpeedCamera, distance: Double)? {
+        guard withinMeters > 0 else { return nil }
+        guard !buckets.isEmpty else { return nil }
+
+        let cells = max(1, Int(ceil(withinMeters / (cellSize * 111_000.0))) + 1)
+        let centerLatIndex = Int32(floor(coordinate.latitude / cellSize))
+        let centerLonIndex = Int32(floor(coordinate.longitude / cellSize))
+
+        var best: PublicSpeedCamera?
+        var bestDistance = Double.greatestFiniteMagnitude
+
+        for dLat in -cells...cells {
+            for dLon in -cells...cells {
+                let key = cellKey(
+                    latIndex: centerLatIndex &+ Int32(dLat),
+                    lonIndex: centerLonIndex &+ Int32(dLon)
+                )
+                guard let candidates = buckets[key] else { continue }
+
+                for camera in candidates {
+                    let d = distanceMeters(
+                        coordinate.latitude,
+                        coordinate.longitude,
+                        camera.lat,
+                        camera.lon
+                    )
+                    if d <= withinMeters, d < bestDistance {
+                        best = camera
+                        bestDistance = d
+                    }
+                }
+            }
+        }
+
+        if let best {
+            return (best, bestDistance)
+        }
+        return nil
+    }
+
+    private static func cellKey(lat: Double, lon: Double, cellSize: Double) -> UInt64 {
+        let latIndex = Int32(floor(lat / cellSize))
+        let lonIndex = Int32(floor(lon / cellSize))
+        return cellKey(latIndex: latIndex, lonIndex: lonIndex)
+    }
+
+    private static func cellKey(latIndex: Int32, lonIndex: Int32) -> UInt64 {
+        (UInt64(UInt32(bitPattern: latIndex)) << 32) | UInt64(UInt32(bitPattern: lonIndex))
+    }
+
+    private func cellKey(latIndex: Int32, lonIndex: Int32) -> UInt64 {
+        Self.cellKey(latIndex: latIndex, lonIndex: lonIndex)
+    }
+
+    private func distanceMeters(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
+        let r = 6_371_000.0
+        let rad = Double.pi / 180.0
+        let aLat = lat1 * rad
+        let bLat = lat2 * rad
+        let dLat = (lat2 - lat1) * rad
+        let dLon = (lon2 - lon1) * rad
+        let s1 = sin(dLat / 2.0)
+        let s2 = sin(dLon / 2.0)
+        let h = (s1 * s1) + (cos(aLat) * cos(bLat) * s2 * s2)
+        return 2.0 * r * asin(min(1.0, sqrt(h)))
     }
 }

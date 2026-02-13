@@ -245,6 +245,7 @@ struct CarModeView: View {
         .onAppear {
             viewModel.start()
             deviceLocationTracker.start()
+            Task { await PublicSpeedCameraStore.shared.prewarm() }
         }
         .onDisappear {
             viewModel.stop()
@@ -548,7 +549,8 @@ struct CarModeView: View {
         speedCameraAlertEngine.update(
             nextGuide: naviModel.nextSpeedCameraGuide,
             distanceMeters: naviModel.distanceToNextSpeedCameraMeters(),
-            speedKph: effectiveNaviSpeedKph
+            speedKph: effectiveNaviSpeedKph,
+            speedLimitKph: naviModel.nextSpeedCameraLimitKph
         )
     }
 

@@ -1127,7 +1127,8 @@ struct KakaoNavigationPaneView: View {
         speedCameraAlertEngine.update(
             nextGuide: model.nextSpeedCameraGuide,
             distanceMeters: model.distanceToNextSpeedCameraMeters(),
-            speedKph: vehicleSpeedKph
+            speedKph: vehicleSpeedKph,
+            speedLimitKph: model.nextSpeedCameraLimitKph
         )
     }
 
@@ -1455,18 +1456,23 @@ final class SpeedCameraAlertEngine: ObservableObject {
 
     private let thresholdsMeters = [1000, 500, 300, 150]
     private let synthesizer = AVSpeechSynthesizer()
+    private var beepEngine: AVAudioEngine?
+    private var beepPlayer: AVAudioPlayerNode?
+    private var beepFormat: AVAudioFormat?
     private var didConfigureAudioSession = false
     private var currentGuideID: String?
     private var firedThresholds: Set<Int> = []
     private var lastSpokenAt: Date = .distantPast
+    private var didWarnOverspeedForCurrentGuide = false
 
     func reset() {
         currentGuideID = nil
         firedThresholds.removeAll()
         latestAlertText = nil
+        didWarnOverspeedForCurrentGuide = false
     }
 
-    func update(nextGuide: KakaoGuide?, distanceMeters: Int?, speedKph: Double) {
+    func update(nextGuide: KakaoGuide?, distanceMeters: Int?, speedKph: Double, speedLimitKph: Int?) {
         guard let nextGuide, let distanceMeters, distanceMeters >= 0 else {
             reset()
             return
@@ -1476,6 +1482,7 @@ final class SpeedCameraAlertEngine: ObservableObject {
             currentGuideID = nextGuide.id
             firedThresholds.removeAll()
             latestAlertText = nil
+            didWarnOverspeedForCurrentGuide = false
         }
 
         if distanceMeters > 1_800 {
@@ -1483,7 +1490,23 @@ final class SpeedCameraAlertEngine: ObservableObject {
             return
         }
 
-        latestAlertText = "과속 카메라 \(distanceMeters)m"
+        if let limit = speedLimitKph, limit > 0 {
+            latestAlertText = "과속 카메라 \(distanceMeters)m · 제한 \(limit)"
+        } else {
+            latestAlertText = "과속 카메라 \(distanceMeters)m"
+        }
+
+        // Overspeed warning: within 500m and speed above limit.
+        if let limit = speedLimitKph, limit > 0, distanceMeters <= 500 {
+            let roundedSpeed = Int(max(0, speedKph.rounded()))
+            if roundedSpeed >= limit + 3 {
+                latestAlertText = "과속! 제한 \(limit) · \(distanceMeters)m"
+                if !didWarnOverspeedForCurrentGuide {
+                    didWarnOverspeedForCurrentGuide = true
+                    playDoubleBeep()
+                }
+            }
+        }
 
         let notFired = thresholdsMeters.filter { distanceMeters <= $0 && !firedThresholds.contains($0) }
         guard let stage = notFired.min() else { return }
@@ -1522,5 +1545,93 @@ final class SpeedCameraAlertEngine: ObservableObject {
         } catch {
             // Non-fatal: speech can still work with the default session.
         }
+    }
+
+    private func playDoubleBeep() {
+        configureAudioSessionIfNeeded()
+
+        let engine: AVAudioEngine
+        let player: AVAudioPlayerNode
+        let format: AVAudioFormat
+
+        if let beepEngine, let beepPlayer, let beepFormat {
+            engine = beepEngine
+            player = beepPlayer
+            format = beepFormat
+        } else {
+            let createdEngine = AVAudioEngine()
+            let createdPlayer = AVAudioPlayerNode()
+            let createdFormat = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+
+            createdEngine.attach(createdPlayer)
+            createdEngine.connect(createdPlayer, to: createdEngine.mainMixerNode, format: createdFormat)
+            do {
+                try createdEngine.start()
+            } catch {
+                return
+            }
+            createdPlayer.play()
+
+            beepEngine = createdEngine
+            beepPlayer = createdPlayer
+            beepFormat = createdFormat
+
+            engine = createdEngine
+            player = createdPlayer
+            format = createdFormat
+        }
+
+        guard engine.isRunning else { return }
+        if !player.isPlaying {
+            player.play()
+        }
+
+        let buffer = makeDoubleBeepBuffer(format: format)
+        player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+    }
+
+    private func makeDoubleBeepBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer {
+        let sampleRate = format.sampleRate
+        let beepSeconds = 0.12
+        let gapSeconds = 0.06
+        let totalSeconds = (beepSeconds * 2.0) + gapSeconds
+        let totalFrames = AVAudioFrameCount(totalSeconds * sampleRate)
+
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames)!
+        buffer.frameLength = totalFrames
+
+        guard let channel = buffer.floatChannelData?[0] else {
+            return buffer
+        }
+
+        let freq1 = 880.0
+        let freq2 = 660.0
+        let amplitude = 0.22
+        let attack = 0.015
+        let release = 0.03
+
+        func envelope(_ t: Double, _ duration: Double) -> Double {
+            if t < 0 { return 0 }
+            if t > duration { return 0 }
+            let a = min(1.0, t / attack)
+            let r = min(1.0, max(0.0, (duration - t) / release))
+            return a * r
+        }
+
+        for i in 0..<Int(totalFrames) {
+            let t = Double(i) / sampleRate
+            var value = 0.0
+            if t < beepSeconds {
+                value = sin(2.0 * Double.pi * freq1 * t) * amplitude * envelope(t, beepSeconds)
+            } else if t > (beepSeconds + gapSeconds) {
+                let t2 = t - beepSeconds - gapSeconds
+                value = sin(2.0 * Double.pi * freq2 * t2) * amplitude * envelope(t2, beepSeconds)
+            } else {
+                value = 0.0
+            }
+            channel[i] = Float(value)
+        }
+
+        return buffer
     }
 }
