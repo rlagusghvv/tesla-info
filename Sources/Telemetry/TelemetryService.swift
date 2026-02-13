@@ -23,9 +23,17 @@ actor TelemetryService {
     }
 
     func sendCommand(_ command: String, payload: [String: Any]? = nil) async throws -> CommandResponse {
-        // In-car operation policy: always send commands through backend to keep
-        // Fleet/TeslaMate command handling and retries centralized.
-        return try await sendCommandToBackend(command, payload: payload)
+        switch AppConfig.telemetrySource {
+        case .directFleet:
+            // Fleet-first: lower latency and no backend token drift.
+            if command == "navigation_waypoints_request" || command == "navigation_request" {
+                return try await sendNavigationCommandViaFleet(command, payload: payload)
+            }
+            return try await TeslaFleetService.shared.sendCommand(command, payload: payload)
+        case .backend:
+            // Backend mode keeps server-side routing and debug visibility.
+            return try await sendCommandToBackend(command, payload: payload)
+        }
     }
 
     private func fetchLatestFromBackend() async throws -> VehicleSnapshot {
@@ -231,6 +239,72 @@ actor TelemetryService {
             parts.append(reason)
         }
         return parts.isEmpty ? "Command failed." : parts.joined(separator: " | ")
+    }
+
+    private func sendNavigationCommandViaFleet(_ command: String, payload: [String: Any]?) async throws -> CommandResponse {
+        guard let destination = normalizeNavigationDestination(payload: payload) else {
+            return try await TeslaFleetService.shared.sendCommand(command, payload: payload)
+        }
+
+        let waypointBody: [String: Any] = [
+            "waypoints": [
+                [
+                    "lat": destination.lat,
+                    "lon": destination.lon,
+                    "name": destination.name
+                ]
+            ]
+        ]
+
+        let simpleBody: [String: Any] = [
+            "lat": destination.lat,
+            "lon": destination.lon,
+            "name": destination.name
+        ]
+
+        let preferred = command == "navigation_request"
+            ? [("navigation_request", simpleBody), ("navigation_waypoints_request", waypointBody)]
+            : [("navigation_waypoints_request", waypointBody), ("navigation_request", simpleBody)]
+
+        var lastResponse: CommandResponse?
+        var lastError: Error?
+
+        for (cmd, body) in preferred {
+            do {
+                let response = try await TeslaFleetService.shared.sendCommand(cmd, payload: body)
+                lastResponse = response
+                if response.ok {
+                    return response
+                }
+            } catch {
+                lastError = error
+            }
+        }
+
+        if let lastResponse {
+            return lastResponse
+        }
+        throw lastError ?? TelemetryError.server("Navigation command failed.")
+    }
+
+    private func normalizeNavigationDestination(payload: [String: Any]?) -> (name: String, lat: Double, lon: Double)? {
+        guard let payload else { return nil }
+
+        let name = (payload["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lat = parseDouble(payload["lat"] ?? payload["latitude"])
+        let lon = parseDouble(payload["lon"] ?? payload["lng"] ?? payload["longitude"])
+
+        guard let lat, let lon else { return nil }
+        guard (-90.0...90.0).contains(lat), (-180.0...180.0).contains(lon) else { return nil }
+
+        return (name?.isEmpty == false ? name! : "Destination", lat, lon)
+    }
+
+    private func parseDouble(_ value: Any?) -> Double? {
+        if let d = value as? Double, d.isFinite { return d }
+        if let i = value as? Int { return Double(i) }
+        if let s = value as? String, let d = Double(s), d.isFinite { return d }
+        return nil
     }
 }
 

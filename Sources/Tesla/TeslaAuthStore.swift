@@ -173,7 +173,16 @@ final class TeslaAuthStore: ObservableObject {
     }
 
     func ensureValidAccessToken() async throws -> String {
-        if let token = KeychainStore.getString(Keys.accessToken),
+        try await refreshAccessToken(force: false)
+    }
+
+    func forceRefreshAccessToken() async throws -> String {
+        try await refreshAccessToken(force: true)
+    }
+
+    private func refreshAccessToken(force: Bool) async throws -> String {
+        if !force,
+           let token = KeychainStore.getString(Keys.accessToken),
            let expiresAt = KeychainStore.getString(Keys.expiresAt),
            let date = iso.date(from: expiresAt),
            date.timeIntervalSinceNow > 60 {

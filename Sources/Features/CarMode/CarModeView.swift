@@ -100,11 +100,22 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let latest = locations.last else { return }
         Task { @MainActor in
+            let now = Date()
+            let previousLocation = latestLocation
             latestLocation = latest
             if latest.speed >= 0 {
                 latestSpeedKph = latest.speed * 3.6
+            } else if let prev = previousLocation {
+                let dt = now.timeIntervalSince(lastUpdatedAt)
+                if dt >= 0.3, dt <= 8, latest.horizontalAccuracy >= 0, latest.horizontalAccuracy <= 120 {
+                    let meters = latest.distance(from: prev)
+                    let computed = (meters / dt) * 3.6
+                    if computed.isFinite {
+                        latestSpeedKph = computed
+                    }
+                }
             }
-            lastUpdatedAt = Date()
+            lastUpdatedAt = now
         }
     }
 
@@ -156,7 +167,8 @@ struct CarModeView: View {
     }
 
     private var effectiveNaviSpeedKph: Double {
-        deviceLocationTracker.currentSpeedKph ?? viewModel.snapshot.vehicle.speedKph
+        // GPS-first: Fleet/Backend speed is too delayed for real driving assist.
+        deviceLocationTracker.currentSpeedKph ?? 0
     }
 
     private var effectiveLocationSourceLabel: String {

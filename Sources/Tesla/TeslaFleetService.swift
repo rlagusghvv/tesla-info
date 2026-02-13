@@ -252,11 +252,12 @@ actor TeslaFleetService {
         )
     }
 
-    func sendCommand(_ command: String) async throws -> CommandResponse {
+    func sendCommand(_ command: String, payload: [String: Any]? = nil) async throws -> CommandResponse {
         let vehicle = try await resolveVehicle()
         // wake_up is not a /command endpoint on Fleet API.
         if command == "wake_up" {
-            let data = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/wake_up", method: "POST", body: Data("{}".utf8))
+            let body = try encodeCommandPayload(payload)
+            let data = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/wake_up", method: "POST", body: body)
             let wakeInfo = parseWakeResponse(data)
             var message = wakeInfo.message
 
@@ -306,7 +307,8 @@ actor TeslaFleetService {
             )
         }
 
-        let data = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/command/\(command)", method: "POST", body: Data("{}".utf8))
+        let body = try encodeCommandPayload(payload)
+        let data = try await request(path: "/api/1/vehicles/\(vehicle.vinOrId)/command/\(command)", method: "POST", body: body)
         let decoded = try decoder.decode(TeslaCommandEnvelope.self, from: data)
         let ok = decoded.response?.result ?? true
         let reason = decoded.response?.reason
@@ -343,6 +345,11 @@ actor TeslaFleetService {
             details: CommandDetails(response: CommandResultBody(result: decoded.response?.result, reason: decoded.response?.reason)),
             snapshot: snapshot
         )
+    }
+
+    private func encodeCommandPayload(_ payload: [String: Any]?) throws -> Data {
+        guard let payload else { return Data("{}".utf8) }
+        return try JSONSerialization.data(withJSONObject: payload, options: [])
     }
 
     private func resolveVehicle() async throws -> TeslaVehicleSummary {
@@ -390,7 +397,8 @@ actor TeslaFleetService {
         path: String,
         method: String,
         queryItems: [URLQueryItem] = [],
-        body: Data? = nil
+        body: Data? = nil,
+        allowUnauthorizedRetry: Bool = true
     ) async throws -> (data: Data, url: URL, pathSummary: String) {
         let token = try await TeslaAuthStore.shared.ensureValidAccessToken()
         let finalURL = try buildURL(path: path, queryItems: queryItems)
@@ -433,7 +441,29 @@ actor TeslaFleetService {
             let shortened = text.count > 600 ? String(text.prefix(600)) + "..." : text
 
             // Tesla sometimes responds with non-401 status but "Unauthorized" payload.
-            if http.statusCode == 401 || http.statusCode == 403 || shortened.localizedCaseInsensitiveContains("\"error\":\"unauthorized\"") || shortened.localizedCaseInsensitiveContains("\"error\":\"Unauthorized\"") {
+            let isUnauthorized =
+                http.statusCode == 401 ||
+                http.statusCode == 403 ||
+                shortened.localizedCaseInsensitiveContains("\"error\":\"unauthorized\"") ||
+                shortened.localizedCaseInsensitiveContains("\"error\":\"Unauthorized\"")
+
+            if isUnauthorized {
+                // When our local expiresAt drifts, Fleet can return 401 even though we think the token is valid.
+                // One forced refresh + retry keeps sessions stable without requiring re-login.
+                if allowUnauthorizedRetry, http.statusCode == 401 {
+                    do {
+                        _ = try await TeslaAuthStore.shared.forceRefreshAccessToken()
+                        return try await requestWithMetadata(
+                            path: path,
+                            method: method,
+                            queryItems: queryItems,
+                            body: body,
+                            allowUnauthorizedRetry: false
+                        )
+                    } catch {
+                        // Fallthrough to surface unauthorized (user may need to reconnect).
+                    }
+                }
                 throw TeslaFleetError.unauthorized(shortened)
             }
             if http.statusCode == 429 {

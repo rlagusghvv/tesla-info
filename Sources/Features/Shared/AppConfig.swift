@@ -51,8 +51,8 @@ enum AppConfig {
            let source = TelemetrySource(rawValue: raw) {
             return source
         }
-        // Default to backend mode for in-car reliability and easier local iteration.
-        return .backend
+        // Default to direct Fleet for lowest latency and simpler ops (no backend/tunnel required).
+        return .directFleet
     }
 
     static func setTelemetrySource(_ source: TelemetrySource) {
