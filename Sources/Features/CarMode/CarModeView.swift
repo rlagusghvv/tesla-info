@@ -48,6 +48,8 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
             }
             manager.startUpdatingLocation()
             manager.startMonitoringSignificantLocationChanges()
+            // Force a fresh callback even when the device is stationary (helps on app resume).
+            manager.requestLocation()
             hasStartedUpdates = true
         }
     }
@@ -71,7 +73,7 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
         guard let location = latestLocation else { return nil }
         let age = Date().timeIntervalSince(lastUpdatedAt)
         // Best-effort (route sync can start even if GPS is still settling).
-        guard age <= 60 else { return nil }
+        guard age <= 600 else { return nil }
         guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 2_000 else { return nil }
         return makeVehicleLocation(from: location)
     }
@@ -102,6 +104,7 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
                 }
                 manager.startUpdatingLocation()
                 manager.startMonitoringSignificantLocationChanges()
+                manager.requestLocation()
                 hasStartedUpdates = true
             } else if authorizationStatus == .denied || authorizationStatus == .restricted {
                 manager.stopUpdatingLocation()
@@ -238,17 +241,31 @@ struct CarModeView: View {
             return "단속 카메라: GPS 수신 대기중 (실외에서 5-10초)"
         }
 
-        if deviceLocationTracker.alertVehicleLocation == nil,
-           let accuracy = deviceLocationTracker.latestLocation?.horizontalAccuracy,
-           accuracy.isFinite,
-           accuracy > 0 {
-            return "단속 카메라: GPS 정확도 낮음 (±\(Int(accuracy))m) · 경보 대기"
+        if deviceLocationTracker.alertVehicleLocation == nil {
+            let age = Date().timeIntervalSince(deviceLocationTracker.lastUpdatedAt)
+            let accuracy = deviceLocationTracker.latestLocation?.horizontalAccuracy ?? -1
+            if age > 12 {
+                if effectiveNaviSpeedKph < 2 {
+                    return "단속 카메라: 정지 중 (GPS 업데이트 \(Int(age))초 전) · 경보 대기"
+                }
+                return "단속 카메라: GPS 업데이트 지연 (\(Int(age))초 전) · 경보 대기"
+            }
+            if accuracy.isFinite, accuracy > 90 {
+                return "단속 카메라: GPS 정확도 낮음 (±\(Int(accuracy))m) · 경보 대기"
+            }
+            return "단속 카메라: GPS 품질 확인중 · 경보 대기"
         }
         if naviModel.route == nil {
             return "단속 카메라: 경로 동기화 중..."
         }
+        if naviModel.isIndexingSpeedCameras {
+            return "단속 카메라: 경로 카메라 분석 중..."
+        }
+        if naviModel.speedCameraGuideCount == 0 {
+            return "단속 카메라: 이 경로에서 찾지 못함"
+        }
         if naviModel.nextSpeedCameraGuide == nil {
-            return "단속 카메라: 이 경로에서 찾지 못함 (근처 검색 중)"
+            return "단속 카메라: 다음 카메라 계산 중..."
         }
         if let meters = naviModel.distanceToNextSpeedCameraMeters() {
             if let limit = naviModel.nextSpeedCameraLimitKph, limit > 0 {

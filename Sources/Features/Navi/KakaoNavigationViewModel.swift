@@ -1,6 +1,109 @@
 import CoreLocation
 import Foundation
 
+fileprivate struct LatLonBounds: Sendable {
+    let minLat: Double
+    let maxLat: Double
+    let minLon: Double
+    let maxLon: Double
+
+    func contains(lat: Double, lon: Double) -> Bool {
+        lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon
+    }
+}
+
+private func boundsForPolyline(_ polyline: [CLLocationCoordinate2D], marginMeters: Double) -> LatLonBounds? {
+    guard !polyline.isEmpty else { return nil }
+
+    var minLat = Double.greatestFiniteMagnitude
+    var maxLat = -Double.greatestFiniteMagnitude
+    var minLon = Double.greatestFiniteMagnitude
+    var maxLon = -Double.greatestFiniteMagnitude
+
+    for p in polyline {
+        minLat = min(minLat, p.latitude)
+        maxLat = max(maxLat, p.latitude)
+        minLon = min(minLon, p.longitude)
+        maxLon = max(maxLon, p.longitude)
+    }
+
+    let centerLat = (minLat + maxLat) * 0.5
+    let metersPerLat = 111_000.0
+    let metersPerLon = max(1.0, metersPerLat * cos(centerLat * Double.pi / 180.0))
+    let padLat = marginMeters / metersPerLat
+    let padLon = marginMeters / metersPerLon
+
+    return LatLonBounds(
+        minLat: minLat - padLat,
+        maxLat: maxLat + padLat,
+        minLon: minLon - padLon,
+        maxLon: maxLon + padLon
+    )
+}
+
+private func haversineMeters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
+    let r = 6_371_000.0
+    let lat1 = a.latitude * Double.pi / 180.0
+    let lat2 = b.latitude * Double.pi / 180.0
+    let dLat = lat2 - lat1
+    let dLon = (b.longitude - a.longitude) * Double.pi / 180.0
+
+    let s1 = sin(dLat / 2.0)
+    let s2 = sin(dLon / 2.0)
+    let h = (s1 * s1) + (cos(lat1) * cos(lat2) * s2 * s2)
+    return 2.0 * r * asin(min(1.0, sqrt(h)))
+}
+
+private func minDistanceToPolylineSegmentsMeters(point: CLLocationCoordinate2D, polyline: [CLLocationCoordinate2D]) -> Double? {
+    guard polyline.count >= 2 else { return nil }
+
+    // Equirectangular projection is good enough at < few hundred meters in KR.
+    let refLat = point.latitude * Double.pi / 180.0
+    let metersPerLat = 111_000.0
+    let metersPerLon = max(1.0, metersPerLat * cos(refLat))
+
+    func toXY(_ c: CLLocationCoordinate2D) -> (x: Double, y: Double) {
+        (c.longitude * metersPerLon, c.latitude * metersPerLat)
+    }
+
+    let p = toXY(point)
+    var best = Double.greatestFiniteMagnitude
+
+    var prev = polyline[0]
+    for next in polyline.dropFirst() {
+        let a = toXY(prev)
+        let b = toXY(next)
+        let abx = b.x - a.x
+        let aby = b.y - a.y
+        let apx = p.x - a.x
+        let apy = p.y - a.y
+        let denom = (abx * abx) + (aby * aby)
+        let t = denom > 0 ? max(0, min(1, (apx * abx + apy * aby) / denom)) : 0
+        let cx = a.x + abx * t
+        let cy = a.y + aby * t
+        let dx = p.x - cx
+        let dy = p.y - cy
+        best = min(best, sqrt(dx * dx + dy * dy))
+        prev = next
+    }
+
+    return best.isFinite ? best : nil
+}
+
+private func nearestPolylineIndex(point: CLLocationCoordinate2D, polyline: [CLLocationCoordinate2D]) -> Int? {
+    guard !polyline.isEmpty else { return nil }
+    var bestIdx = 0
+    var best = Double.greatestFiniteMagnitude
+    for (i, p) in polyline.enumerated() {
+        let d = haversineMeters(point, p)
+        if d < best {
+            best = d
+            bestIdx = i
+        }
+    }
+    return best.isFinite ? bestIdx : nil
+}
+
 @MainActor
 final class KakaoNavigationViewModel: ObservableObject {
     enum FavoriteSlot: String {
@@ -44,6 +147,8 @@ final class KakaoNavigationViewModel: ObservableObject {
     @Published private(set) var zoomOffset: Int = 0
     @Published private(set) var zoomRevision: Int = 0
     @Published private(set) var nextSpeedCameraLimitKph: Int?
+    @Published private(set) var speedCameraGuideCount: Int = 0
+    @Published private(set) var isIndexingSpeedCameras: Bool = false
     @Published private(set) var homeDestination: SavedDestination?
     @Published private(set) var workDestination: SavedDestination?
 
@@ -53,6 +158,8 @@ final class KakaoNavigationViewModel: ObservableObject {
     private var cachedKey: String = ""
     private var cachedClient: KakaoAPIClient?
     private var speedCameraPOIGuides: [KakaoGuide] = []
+    private var publicSpeedCameraGuides: [KakaoGuide] = []
+    private var speedCameraGuideRouteIndex: [String: Int] = [:]
     private var isRefreshingSpeedCameras = false
     private var lastSpeedCameraRefreshAt: Date = .distantPast
     private var lastSpeedCameraRefreshCoordinate: CLLocationCoordinate2D?
@@ -77,6 +184,10 @@ final class KakaoNavigationViewModel: ObservableObject {
     func clearRoute() {
         route = nil
         speedCameraPOIGuides = []
+        publicSpeedCameraGuides = []
+        speedCameraGuideRouteIndex = [:]
+        speedCameraGuideCount = 0
+        isIndexingSpeedCameras = false
         speedCameraRevision += 1
         routeRevision += 1
         errorMessage = nil
@@ -167,11 +278,18 @@ final class KakaoNavigationViewModel: ObservableObject {
             routeRevision += 1
             isFollowModeEnabled = true
             followPulse += 1
+            isIndexingSpeedCameras = true
+            schedulePublicSpeedCameraIndexing(route: r, expectedRouteRevision: routeRevision)
             await refreshSpeedCameraPOIsIfNeeded(restAPIKey: restAPIKey, force: true)
+            refreshSpeedCameraGuideCount()
             updateNextSpeedCameraLimitIfNeeded()
         } catch {
             route = nil
             speedCameraPOIGuides = []
+            publicSpeedCameraGuides = []
+            speedCameraGuideRouteIndex = [:]
+            speedCameraGuideCount = 0
+            isIndexingSpeedCameras = false
             speedCameraRevision += 1
             errorMessage = error.localizedDescription
             nextSpeedCameraLimitKph = nil
@@ -212,6 +330,7 @@ final class KakaoNavigationViewModel: ObservableObject {
         guard route != nil else {
             if !speedCameraPOIGuides.isEmpty {
                 speedCameraPOIGuides = []
+                refreshSpeedCameraGuideCount()
                 speedCameraRevision += 1
             }
             return
@@ -236,8 +355,16 @@ final class KakaoNavigationViewModel: ObservableObject {
             let places = try await client(restAPIKey: key).searchSpeedCameraPOIs(near: near)
             let filtered = filterSpeedCameraPOIs(places, route: route)
             speedCameraPOIGuides = filtered
+            if let polyline = route?.polyline, !polyline.isEmpty {
+                for g in filtered {
+                    if speedCameraGuideRouteIndex[g.id] == nil {
+                        speedCameraGuideRouteIndex[g.id] = nearestPolylineIndex(point: g.coordinate, polyline: polyline) ?? 0
+                    }
+                }
+            }
             lastSpeedCameraRefreshCoordinate = near
             lastSpeedCameraRefreshAt = Date()
+            refreshSpeedCameraGuideCount()
             speedCameraRevision += 1
         } catch {
             // Non-fatal: keep route guidance running even if camera POI fetch fails.
@@ -275,10 +402,42 @@ final class KakaoNavigationViewModel: ObservableObject {
     }
 
     var nextSpeedCameraGuide: KakaoGuide? {
-        guard route != nil else { return nil }
+        guard let route else { return nil }
         let cameraGuides = mergedSpeedCameraGuides()
         guard !cameraGuides.isEmpty else { return nil }
         guard let vehicleCoordinate else { return cameraGuides.first }
+
+        if !route.polyline.isEmpty, let vehicleIndex = nearestPolylineIndex(point: vehicleCoordinate, polyline: route.polyline) {
+            var best: KakaoGuide?
+            var bestIdx = Int.max
+            var bestDistance = Double.greatestFiniteMagnitude
+
+            for g in cameraGuides {
+                let idx = speedCameraGuideRouteIndex[g.id] ?? nearestPolylineIndex(point: g.coordinate, polyline: route.polyline) ?? 0
+                speedCameraGuideRouteIndex[g.id] = idx
+
+                // Allow a small slack because GPS can jitter around the polyline.
+                guard idx + 2 >= vehicleIndex else { continue }
+
+                if idx < bestIdx {
+                    bestIdx = idx
+                    bestDistance = distanceMeters(vehicleCoordinate, g.coordinate)
+                    best = g
+                    continue
+                }
+                if idx == bestIdx {
+                    let d = distanceMeters(vehicleCoordinate, g.coordinate)
+                    if d < bestDistance {
+                        bestDistance = d
+                        best = g
+                    }
+                }
+            }
+
+            if let best {
+                return best
+            }
+        }
 
         var bestAny: KakaoGuide?
         var bestAnyDistance = Double.greatestFiniteMagnitude
@@ -438,17 +597,21 @@ final class KakaoNavigationViewModel: ObservableObject {
 
     private func mergedSpeedCameraGuides() -> [KakaoGuide] {
         let routeGuides = route?.guides.filter(isSpeedCameraGuide(_:)) ?? []
-        let incoming = routeGuides + speedCameraPOIGuides
+        let incoming = routeGuides + publicSpeedCameraGuides + speedCameraPOIGuides
         guard !incoming.isEmpty else { return [] }
 
         var merged: [KakaoGuide] = []
+        func precedence(of guide: KakaoGuide) -> Int {
+            if guide.id.hasPrefix("poi:") { return 2 }
+            if guide.id.hasPrefix("public:") { return 1 }
+            return 0 // Kakao route-native guide
+        }
+
         for guide in incoming {
             if let index = merged.firstIndex(where: { distanceMeters($0.coordinate, guide.coordinate) <= 35 }) {
-                // Prefer Kakao route-native guide over POI-only fallback when they overlap.
                 let existing = merged[index]
-                let existingIsPOI = existing.id.hasPrefix("poi:")
-                let incomingIsPOI = guide.id.hasPrefix("poi:")
-                if existingIsPOI && !incomingIsPOI {
+                // Prefer route-native > public dataset > POI when they overlap.
+                if precedence(of: guide) < precedence(of: existing) {
                     merged[index] = guide
                 }
                 continue
@@ -536,6 +699,116 @@ final class KakaoNavigationViewModel: ObservableObject {
         }
         return false
     }
+
+    private func refreshSpeedCameraGuideCount() {
+        speedCameraGuideCount = mergedSpeedCameraGuides().count
+    }
+
+    private func schedulePublicSpeedCameraIndexing(route: KakaoRoute, expectedRouteRevision: Int) {
+        let polyline = route.polyline
+        guard !polyline.isEmpty else {
+            publicSpeedCameraGuides = []
+            isIndexingSpeedCameras = false
+            refreshSpeedCameraGuideCount()
+            speedCameraRevision += 1
+            return
+        }
+
+        let corridorMeters = 180.0
+        let boundsMarginMeters = 320.0
+
+        Task.detached(priority: .utility) {
+            let store = PublicSpeedCameraStore.shared
+            await store.prewarm()
+            if await store.cameraCount() == 0 {
+                _ = try? await store.refreshFromBackendIfNeeded(force: true)
+            }
+
+            guard let bounds = boundsForPolyline(polyline, marginMeters: boundsMarginMeters) else {
+                await MainActor.run {
+                    if self.routeRevision != expectedRouteRevision { return }
+                    self.publicSpeedCameraGuides = []
+                    self.isIndexingSpeedCameras = false
+                    self.refreshSpeedCameraGuideCount()
+                    self.speedCameraRevision += 1
+                }
+                return
+            }
+
+            let candidates = await store.cameras(in: bounds)
+            if candidates.isEmpty {
+                await MainActor.run {
+                    if self.routeRevision != expectedRouteRevision { return }
+                    self.publicSpeedCameraGuides = []
+                    self.isIndexingSpeedCameras = false
+                    self.refreshSpeedCameraGuideCount()
+                    self.speedCameraRevision += 1
+                    self.updateNextSpeedCameraLimitIfNeeded()
+                }
+                return
+            }
+
+            var indexed: [(guide: KakaoGuide, idx: Int)] = []
+            indexed.reserveCapacity(min(512, candidates.count / 4))
+
+            for camera in candidates {
+                let coord = camera.coordinate
+                guard let minD = minDistanceToPolylineSegmentsMeters(point: coord, polyline: polyline) else { continue }
+                guard minD <= corridorMeters else { continue }
+                guard let idx = nearestPolylineIndex(point: coord, polyline: polyline) else { continue }
+
+                indexed.append(
+                    (
+                        guide: KakaoGuide(
+                            id: "public:\(camera.id)",
+                            name: "과속 카메라",
+                            guidance: "공공데이터",
+                            coordinate: coord,
+                            distanceMeters: nil,
+                            durationSeconds: nil,
+                            type: 9902
+                        ),
+                        idx: idx
+                    )
+                )
+            }
+
+            indexed.sort { a, b in
+                if a.idx != b.idx { return a.idx < b.idx }
+                return a.guide.id < b.guide.id
+            }
+
+            // De-dupe very close cameras to avoid repeated alerts at the same spot.
+            var guides: [KakaoGuide] = []
+            guides.reserveCapacity(indexed.count)
+
+            var lastCoord: CLLocationCoordinate2D?
+            for item in indexed {
+                if let lastCoord {
+                    if haversineMeters(lastCoord, item.guide.coordinate) <= 28 {
+                        continue
+                    }
+                }
+                guides.append(item.guide)
+                lastCoord = item.guide.coordinate
+            }
+
+            let routeIndexMap: [String: Int] = Dictionary(uniqueKeysWithValues: indexed.map { ($0.guide.id, $0.idx) })
+            let finalGuides = guides
+
+            await MainActor.run {
+                if self.routeRevision != expectedRouteRevision { return }
+                self.publicSpeedCameraGuides = finalGuides
+                for (id, idx) in routeIndexMap {
+                    self.speedCameraGuideRouteIndex[id] = idx
+                }
+                self.isIndexingSpeedCameras = false
+                self.refreshSpeedCameraGuideCount()
+                self.speedCameraRevision += 1
+                self.updateNextSpeedCameraLimitIfNeeded()
+            }
+        }
+    }
 }
 
 // MARK: - Public Speed Camera Dataset (data.go.kr)
@@ -592,6 +865,17 @@ actor PublicSpeedCameraStore {
     func lookupLimit(near coordinate: CLLocationCoordinate2D, withinMeters: Double = 85) async -> Int? {
         await ensureLoaded()
         return index.nearest(to: coordinate, withinMeters: withinMeters)?.camera.limitKph
+    }
+
+    func cameraCount() async -> Int {
+        await ensureLoaded()
+        return cameras.count
+    }
+
+    fileprivate func cameras(in bounds: LatLonBounds) async -> [PublicSpeedCamera] {
+        await ensureLoaded()
+        guard !cameras.isEmpty else { return [] }
+        return cameras.filter { bounds.contains(lat: $0.lat, lon: $0.lon) }
     }
 
     func refreshFromBackendIfNeeded(force: Bool) async throws -> Bool {
