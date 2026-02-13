@@ -29,6 +29,6 @@ services:
       backend:
         condition: service_healthy
     volumes:
-      - /Users/kimhyunhomacmini/.cloudflared/790d9e75-55ef-43d1-95d4-ffe8a30cf752.json:/etc/cloudflared/creds.json:ro
+      - ${HOME:-/Users/kimhyunhomacmini}/.cloudflared/790d9e75-55ef-43d1-95d4-ffe8a30cf752.json:/etc/cloudflared/creds.json:ro
       - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
     command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]

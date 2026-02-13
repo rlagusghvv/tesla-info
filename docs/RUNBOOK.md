@@ -48,7 +48,7 @@ cloudflared는 크게 2가지 방식이 있음.
 
 현재 docker compose는 아래를 사용한다:
 - 로컬 credential json을 컨테이너로 mount
-  - `/Users/kimhyunhomacmini/.cloudflared/790d9e75-55ef-43d1-95d4-ffe8a30cf752.json` → `/etc/cloudflared/creds.json`
+  - `${HOME}/.cloudflared/790d9e75-55ef-43d1-95d4-ffe8a30cf752.json` → `/etc/cloudflared/creds.json`
 - repo 내 docker용 config
   - `./cloudflared/config.yml` → `/etc/cloudflared/config.yml`
 
@@ -71,7 +71,7 @@ docker compose logs --tail=200 cloudflared
 조치(현재 기본값 기준):
 - 로컬 파일 존재 확인
 ```bash
-ls -la /Users/kimhyunhomacmini/.cloudflared/790d9e75-55ef-43d1-95d4-ffe8a30cf752.json
+ls -la ${HOME}/.cloudflared/790d9e75-55ef-43d1-95d4-ffe8a30cf752.json
 ls -la /Users/kimhyunhomacmini/tesla-info/_repo/cloudflared/config.yml
 ```
 - 그 다음 재기동
