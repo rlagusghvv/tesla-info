@@ -265,7 +265,7 @@ struct CarModeView: View {
             return "단속 카메라: 이 경로에서 찾지 못함"
         }
         if naviModel.nextSpeedCameraGuide == nil {
-            return "단속 카메라: 다음 카메라 계산 중..."
+            return "단속 카메라: 경로 카메라 \(naviModel.speedCameraGuideCount)개 · 다음 계산 중..."
         }
         if let meters = naviModel.distanceToNextSpeedCameraMeters() {
             if let limit = naviModel.nextSpeedCameraLimitKph, limit > 0 {
