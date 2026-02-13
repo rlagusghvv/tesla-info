@@ -551,7 +551,7 @@ struct CarModeView: View {
             distanceMeters: naviModel.distanceToNextSpeedCameraMeters(),
             speedKph: effectiveNaviSpeedKph,
             speedLimitKph: naviModel.nextSpeedCameraLimitKph,
-            isPro: SubscriptionManager.shared.isPro
+            isPro: SubscriptionManager.shared.effectiveIsPro
         )
     }
 

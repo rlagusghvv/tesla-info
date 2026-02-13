@@ -32,6 +32,7 @@ struct ConnectionGuideView: View {
     @State private var teslaFleetApiBaseText: String = TeslaConstants.defaultFleetApiBase
     @State private var teslaManualCodeText: String = ""
     @State private var teslaManualStateText: String = ""
+    @StateObject private var audioTestEngine = SpeedCameraAlertEngine()
 
     private let quickBackendCandidates: [String] = [
         "https://tesla.splui.com",
@@ -56,7 +57,10 @@ struct ConnectionGuideView: View {
                         .font(.system(size: 44, weight: .heavy, design: .rounded))
 
                     statusBadge
-                    subscriptionPanel
+                    audioTestPanel
+                    if AppConfig.iapEnabled {
+                        subscriptionPanel
+                    }
 
                     Text("Fast Hotspot Setup")
                         .font(.system(size: 34, weight: .bold, design: .rounded))
@@ -125,7 +129,9 @@ struct ConnectionGuideView: View {
             backendURLText = AppConfig.backendBaseURLString
             backendAPITokenText = AppConfig.backendAPIToken
             syncTeslaDraftFromStore()
-            Task { await subscription.refresh(force: false) }
+            if AppConfig.iapEnabled {
+                Task { await subscription.refresh(force: false) }
+            }
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
@@ -150,6 +156,32 @@ struct ConnectionGuideView: View {
         .padding(.vertical, 10)
         .background(
             Capsule(style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+    private var audioTestPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Audio Test")
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+
+            Text("If you can't hear alerts while driving, test audio output first.")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+
+            Button("Test Sound (voice + beep)") {
+                audioTestEngine.playDebugTest()
+            }
+            .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+
+            Text("Tip: iPhone silent switch + volume + Bluetooth output can affect what you hear.")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
         )
     }
@@ -951,6 +983,12 @@ final class SubscriptionManager: ObservableObject {
 
     private init() {
         start()
+    }
+
+    var effectiveIsPro: Bool {
+        // Until we actually turn on IAP gating, keep Pro features unlocked for internal MVP testing.
+        // This avoids "no audio" regressions before App Store Connect products are configured.
+        !AppConfig.iapEnabled || isPro
     }
 
     func start() {

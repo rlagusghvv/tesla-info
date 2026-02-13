@@ -1129,7 +1129,7 @@ struct KakaoNavigationPaneView: View {
             distanceMeters: model.distanceToNextSpeedCameraMeters(),
             speedKph: vehicleSpeedKph,
             speedLimitKph: model.nextSpeedCameraLimitKph,
-            isPro: SubscriptionManager.shared.isPro
+            isPro: SubscriptionManager.shared.effectiveIsPro
         )
     }
 
@@ -1471,6 +1471,17 @@ final class SpeedCameraAlertEngine: ObservableObject {
         firedThresholds.removeAll()
         latestAlertText = nil
         didWarnOverspeedForCurrentGuide = false
+    }
+
+    func playDebugTest() {
+        configureAudioSessionIfNeeded()
+        playDoubleBeep()
+
+        let utterance = AVSpeechUtterance(string: "서브대시 음성 테스트입니다.")
+        utterance.voice = AVSpeechSynthesisVoice(language: "ko-KR")
+        utterance.rate = 0.46
+        utterance.volume = 0.95
+        synthesizer.speak(utterance)
     }
 
     func update(nextGuide: KakaoGuide?, distanceMeters: Int?, speedKph: Double, speedLimitKph: Int?, isPro: Bool) {

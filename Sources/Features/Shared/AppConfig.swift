@@ -6,6 +6,12 @@ enum AppConfig {
     private static let telemetrySourceKey = "telemetry_source"
     private static let backendTokenKey = "backend.api.token"
 
+    // MVP: keep IAP code in place, but do not gate features until explicitly enabled.
+    // Flip this by adding `SubdashIAPEnabled = YES` to Info.plist (or by wiring a remote flag later).
+    static var iapEnabled: Bool {
+        (Bundle.main.object(forInfoDictionaryKey: "SubdashIAPEnabled") as? Bool) ?? false
+    }
+
     static var backendBaseURL: URL {
         if let override = UserDefaults.standard.string(forKey: backendOverrideKey),
            !override.isEmpty,
