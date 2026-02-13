@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import UIKit
 
@@ -8,6 +9,7 @@ struct ConnectionGuideView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var teslaAuth: TeslaAuthStore
     @EnvironmentObject private var kakaoConfig: KakaoConfigStore
+    @EnvironmentObject private var subscription: SubscriptionManager
     @State private var isTestingTesla = false
     @State private var isTestingSnapshot = false
     @State private var isTestingFleetStatus = false
@@ -16,6 +18,7 @@ struct ConnectionGuideView: View {
     @State private var showKakaoJSKey = false
     @State private var showAdvancedTesla = false
     @State private var showTeslaDiagnostics = false
+    @State private var showPaywall = false
     @State private var selectedTelemetrySource: TelemetrySource = AppConfig.telemetrySource
     @State private var backendURLText: String = AppConfig.backendBaseURLString
     @State private var backendAPITokenText: String = AppConfig.backendAPIToken
@@ -53,6 +56,7 @@ struct ConnectionGuideView: View {
                         .font(.system(size: 44, weight: .heavy, design: .rounded))
 
                     statusBadge
+                    subscriptionPanel
 
                     Text("Fast Hotspot Setup")
                         .font(.system(size: 34, weight: .bold, design: .rounded))
@@ -121,6 +125,11 @@ struct ConnectionGuideView: View {
             backendURLText = AppConfig.backendBaseURLString
             backendAPITokenText = AppConfig.backendAPIToken
             syncTeslaDraftFromStore()
+            Task { await subscription.refresh(force: false) }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+                .environmentObject(subscription)
         }
     }
 
@@ -141,6 +150,73 @@ struct ConnectionGuideView: View {
         .padding(.vertical, 10)
         .background(
             Capsule(style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+    private var subscriptionPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Subdash Pro")
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(subscription.isPro ? Color.green : Color.gray)
+                    .frame(width: 10, height: 10)
+                Text(subscription.isPro ? "Pro Active" : "Free")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+
+                if subscription.isPro {
+                    Button("Manage") {
+                        if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                            openURL(url)
+                        }
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 44, cornerRadius: 14))
+                    .frame(width: 110)
+                } else {
+                    Button("Upgrade") { showPaywall = true }
+                        .buttonStyle(
+                            SecondaryCarButtonStyle(
+                                fontSize: 16,
+                                height: 44,
+                                cornerRadius: 14,
+                                fillColor: Color.blue.opacity(0.16),
+                                strokeColor: Color.blue.opacity(0.45),
+                                foregroundColor: Color.blue
+                            )
+                        )
+                        .frame(width: 110)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button(subscription.isRefreshing ? "Loading..." : "View Plans") {
+                    showPaywall = true
+                }
+                .disabled(subscription.isRefreshing)
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+
+                Button(subscription.isRestoring ? "Restoring..." : "Restore") {
+                    Task { await subscription.restorePurchases() }
+                }
+                .disabled(subscription.isRestoring)
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+            }
+
+            if let msg = subscription.statusMessage, !msg.isEmpty {
+                Text(msg)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
         )
     }
@@ -850,5 +926,288 @@ private struct StepCard: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
         )
+    }
+}
+
+// MARK: - Subscription (StoreKit 2)
+
+@MainActor
+final class SubscriptionManager: ObservableObject {
+    static let shared = SubscriptionManager()
+
+    static let proMonthlyProductID = "subdash_pro_monthly"
+    static let proYearlyProductID = "subdash_pro_yearly"
+    static let proProductIDs = [proMonthlyProductID, proYearlyProductID]
+
+    @Published private(set) var products: [Product] = []
+    @Published private(set) var isPro: Bool = false
+    @Published private(set) var isRefreshing: Bool = false
+    @Published private(set) var isRestoring: Bool = false
+    @Published private(set) var isPurchasing: Bool = false
+    @Published var statusMessage: String? = nil
+
+    private var updatesTask: Task<Void, Never>?
+    private var lastRefreshAt: Date = .distantPast
+
+    private init() {
+        start()
+    }
+
+    func start() {
+        updatesTask?.cancel()
+        updatesTask = Task { await observeTransactionUpdates() }
+        Task { await refresh(force: true) }
+    }
+
+    func refresh(force: Bool) async {
+        if !force, Date().timeIntervalSince(lastRefreshAt) < 20 {
+            return
+        }
+        lastRefreshAt = Date()
+
+        isRefreshing = true
+        defer { isRefreshing = false }
+
+        do {
+            let loaded = try await Product.products(for: Self.proProductIDs)
+            products = loaded.sorted { $0.id < $1.id }
+        } catch {
+            statusMessage = "Failed to load products: \(error.localizedDescription)"
+        }
+
+        await refreshEntitlements()
+    }
+
+    func purchase(_ product: Product) async {
+        guard !isPurchasing else { return }
+
+        isPurchasing = true
+        statusMessage = nil
+        defer { isPurchasing = false }
+
+        do {
+            let result = try await product.purchase()
+            switch result {
+            case .success(let verification):
+                let transaction = try checkVerified(verification)
+                await transaction.finish()
+                statusMessage = "Purchase successful."
+                await refreshEntitlements()
+            case .pending:
+                statusMessage = "Purchase pending approval."
+            case .userCancelled:
+                statusMessage = "Purchase cancelled."
+            @unknown default:
+                statusMessage = "Purchase did not complete."
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func restorePurchases() async {
+        guard !isRestoring else { return }
+
+        isRestoring = true
+        statusMessage = nil
+        defer { isRestoring = false }
+
+        do {
+            try await AppStore.sync()
+            statusMessage = "Restore requested."
+        } catch {
+            statusMessage = "Restore failed: \(error.localizedDescription)"
+        }
+
+        await refreshEntitlements()
+    }
+
+    private func refreshEntitlements() async {
+        var pro = false
+        for await result in Transaction.currentEntitlements {
+            guard let transaction = try? checkVerified(result) else { continue }
+            if Self.proProductIDs.contains(transaction.productID) {
+                pro = true
+                break
+            }
+        }
+
+        if isPro != pro {
+            isPro = pro
+        }
+    }
+
+    private func observeTransactionUpdates() async {
+        for await result in Transaction.updates {
+            guard let transaction = try? checkVerified(result) else { continue }
+            if Self.proProductIDs.contains(transaction.productID) {
+                await transaction.finish()
+            }
+            await refreshEntitlements()
+        }
+    }
+
+    private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
+        switch result {
+        case .unverified(_, let error):
+            throw error
+        case .verified(let safe):
+            return safe
+        }
+    }
+}
+
+struct PaywallView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var subscription: SubscriptionManager
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [Color(.systemBackground), Color(.systemGray6)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Subdash Pro")
+                            .font(.system(size: 36, weight: .heavy, design: .rounded))
+
+                        Text("음성 안내 + 삐삐 과속 경고 + 제한속도 표시")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            featureRow("단속 카메라 거리 음성 안내(1000/500/300/150m)")
+                            featureRow("500m 이내 과속 감지 시 삐삐 경고")
+                            featureRow("제한속도 표시(공공데이터 기반)")
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .fill(Color(.secondarySystemBackground))
+                        )
+
+                        if subscription.isPro {
+                            HStack(spacing: 10) {
+                                Circle().fill(Color.green).frame(width: 10, height: 10)
+                                Text("Pro is active on this device.")
+                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Manage") {
+                                    if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                                        openURL(url)
+                                    }
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 44, cornerRadius: 14))
+                                .frame(width: 120)
+                            }
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                    .fill(Color(.secondarySystemBackground))
+                            )
+                        } else {
+                            VStack(alignment: .leading, spacing: 12) {
+                                if subscription.products.isEmpty {
+                                    HStack(spacing: 10) {
+                                        ProgressView()
+                                        Text(subscription.isRefreshing ? "Loading plans..." : "Plans not loaded yet.")
+                                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Button("Retry") {
+                                            Task { await subscription.refresh(force: true) }
+                                        }
+                                        .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 44, cornerRadius: 14))
+                                        .frame(width: 110)
+                                    }
+                                } else {
+                                    ForEach(subscription.products, id: \.id) { product in
+                                        Button(subscription.isPurchasing ? "Purchasing..." : purchaseLabel(for: product)) {
+                                            Task { await subscription.purchase(product) }
+                                        }
+                                        .disabled(subscription.isPurchasing)
+                                        .buttonStyle(PrimaryCarButtonStyle(fontSize: 20, height: 66, cornerRadius: 20))
+                                    }
+                                }
+
+                                HStack(spacing: 10) {
+                                    Button(subscription.isRestoring ? "Restoring..." : "Restore Purchases") {
+                                        Task { await subscription.restorePurchases() }
+                                    }
+                                    .disabled(subscription.isRestoring)
+                                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+
+                                    Button("Manage") {
+                                        if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                                            openURL(url)
+                                        }
+                                    }
+                                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+                                    .frame(width: 140)
+                                }
+                            }
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                    .fill(Color(.secondarySystemBackground))
+                            )
+                        }
+
+                        if let msg = subscription.statusMessage, !msg.isEmpty {
+                            Text(msg)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Text("구독/결제는 App Store 인앱 결제로 처리됩니다. 가격/무료체험은 출시 정책에 따라 변경될 수 있습니다.")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(24)
+                }
+            }
+            .navigationTitle("Pro")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") { dismiss() }
+                }
+            }
+            .task {
+                await subscription.refresh(force: false)
+            }
+        }
+    }
+
+    private func featureRow(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.seal.fill")
+                .foregroundStyle(Color.green)
+                .font(.system(size: 18, weight: .bold))
+            Text(text)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func purchaseLabel(for product: Product) -> String {
+        if product.id == SubscriptionManager.proYearlyProductID {
+            return "Yearly \(product.displayPrice) (Best)"
+        }
+        if product.id == SubscriptionManager.proMonthlyProductID {
+            return "Monthly \(product.displayPrice)"
+        }
+        return "\(product.displayName) \(product.displayPrice)"
     }
 }

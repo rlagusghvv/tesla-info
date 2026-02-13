@@ -1128,7 +1128,8 @@ struct KakaoNavigationPaneView: View {
             nextGuide: model.nextSpeedCameraGuide,
             distanceMeters: model.distanceToNextSpeedCameraMeters(),
             speedKph: vehicleSpeedKph,
-            speedLimitKph: model.nextSpeedCameraLimitKph
+            speedLimitKph: model.nextSpeedCameraLimitKph,
+            isPro: SubscriptionManager.shared.isPro
         )
     }
 
@@ -1472,7 +1473,7 @@ final class SpeedCameraAlertEngine: ObservableObject {
         didWarnOverspeedForCurrentGuide = false
     }
 
-    func update(nextGuide: KakaoGuide?, distanceMeters: Int?, speedKph: Double, speedLimitKph: Int?) {
+    func update(nextGuide: KakaoGuide?, distanceMeters: Int?, speedKph: Double, speedLimitKph: Int?, isPro: Bool) {
         guard let nextGuide, let distanceMeters, distanceMeters >= 0 else {
             reset()
             return
@@ -1490,11 +1491,15 @@ final class SpeedCameraAlertEngine: ObservableObject {
             return
         }
 
-        if let limit = speedLimitKph, limit > 0 {
+        let limitForDisplay = isPro ? speedLimitKph : nil
+        if let limit = limitForDisplay, limit > 0 {
             latestAlertText = "과속 카메라 \(distanceMeters)m · 제한 \(limit)"
         } else {
             latestAlertText = "과속 카메라 \(distanceMeters)m"
         }
+
+        // Free plan: show minimal text only (no voice/beep, no limit display).
+        guard isPro else { return }
 
         // Overspeed warning: within 500m and speed above limit.
         if let limit = speedLimitKph, limit > 0, distanceMeters <= 500 {

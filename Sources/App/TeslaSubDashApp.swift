@@ -8,6 +8,7 @@ struct TeslaSubDashApp: App {
     @StateObject private var router = AppRouter()
     @StateObject private var teslaAuth = TeslaAuthStore.shared
     @StateObject private var kakaoConfig = KakaoConfigStore.shared
+    @StateObject private var subscription = SubscriptionManager.shared
 
     var body: some Scene {
         WindowGroup {
@@ -16,6 +17,7 @@ struct TeslaSubDashApp: App {
                 .environmentObject(router)
                 .environmentObject(teslaAuth)
                 .environmentObject(kakaoConfig)
+                .environmentObject(subscription)
                 .onAppear {
                     consumeStartCarModeFlagIfNeeded()
                     if networkMonitor.isConnected, teslaAuth.isSignedIn {
