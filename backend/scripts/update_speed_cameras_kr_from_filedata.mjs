@@ -355,6 +355,8 @@ async function main() {
   console.log(`Fetching std page: ${stdUrl}`);
   const stdHtml = await fetchText(stdUrl);
 
+  // Some environments (or portal variants) omit pagination links on page 1.
+  // In that case we'll probe subsequent pages until we stop finding entries.
   const maxPage = extractMaxPageIndex(stdHtml);
   const pkSeen = new Set();
   const detailPks = [];
@@ -378,21 +380,56 @@ async function main() {
   addPks(extractFileDataDetailPks(stdHtml));
 
   // Remaining pages are loaded via AJAX; fetch them directly.
+  let pagesFetched = 1;
   if (detailPks.length < targetCount) {
-    for (let pageIndex = 2; pageIndex <= maxPage; pageIndex += 1) {
-      const pageUrl = `${BASE}/tcs/dss/stdFileList.do?publicDataPk=${encodeURIComponent(
-        STD_ID
-      )}&pageIndex=${encodeURIComponent(pageIndex)}`;
-      const pageHtml = await fetchText(pageUrl);
-      if (addPks(extractFileDataDetailPks(pageHtml))) {
-        break;
+    if (maxPage <= 1) {
+      const maxProbePages = 40;
+      let emptyStreak = 0;
+
+      for (let pageIndex = 2; pageIndex <= maxProbePages; pageIndex += 1) {
+        const pageUrl = `${BASE}/tcs/dss/stdFileList.do?publicDataPk=${encodeURIComponent(
+          STD_ID
+        )}&pageIndex=${encodeURIComponent(pageIndex)}`;
+        const pageHtml = await fetchText(pageUrl);
+        pagesFetched = pageIndex;
+
+        const before = detailPks.length;
+        if (addPks(extractFileDataDetailPks(pageHtml))) {
+          break;
+        }
+        const added = detailPks.length - before;
+        if (added <= 0) {
+          emptyStreak += 1;
+          if (emptyStreak >= 2) {
+            break;
+          }
+        } else {
+          emptyStreak = 0;
+        }
+        // Be polite to the portal.
+        await sleep(120);
       }
-      // Be polite to the portal.
-      await sleep(120);
+    } else {
+      for (let pageIndex = 2; pageIndex <= maxPage; pageIndex += 1) {
+        const pageUrl = `${BASE}/tcs/dss/stdFileList.do?publicDataPk=${encodeURIComponent(
+          STD_ID
+        )}&pageIndex=${encodeURIComponent(pageIndex)}`;
+        const pageHtml = await fetchText(pageUrl);
+        pagesFetched = pageIndex;
+
+        if (addPks(extractFileDataDetailPks(pageHtml))) {
+          break;
+        }
+        // Be polite to the portal.
+        await sleep(120);
+      }
     }
   }
 
-  console.log(`Found ${detailPks.length} fileData entries (std=${STD_ID}; pages=${maxPage}).`);
+  const pageInfo = maxPage > 1 ? `pages=${maxPage}` : 'pages=unknown';
+  console.log(
+    `Found ${detailPks.length} fileData entries (std=${STD_ID}; ${pageInfo}; pagesFetched=${pagesFetched}).`
+  );
   const selectedDetailPks = MAX_DATASETS > 0 ? detailPks.slice(0, MAX_DATASETS) : detailPks;
 
   const byCoord = new Map();
