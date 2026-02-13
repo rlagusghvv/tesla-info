@@ -138,6 +138,9 @@ struct CarModeView: View {
     @StateObject private var viewModel = CarModeViewModel()
     @StateObject private var naviModel = KakaoNavigationViewModel()
     @StateObject private var deviceLocationTracker = DeviceLocationTracker()
+    @StateObject private var speedCameraAlertEngine = SpeedCameraAlertEngine()
+    @State private var lastSyncedTeslaRouteSignature: String = ""
+    @State private var lastTeslaRouteAttemptAt: Date = .distantPast
     @State private var naviHUDVisible: Bool = true
     @State private var showChromeInNavi: Bool = false
     @State private var showAccountSheet: Bool = false
@@ -257,6 +260,14 @@ struct CarModeView: View {
             @unknown default:
                 break
             }
+        }
+        .onChange(of: deviceLocationTracker.lastUpdatedAt) { _, _ in
+            guard useUltraLiteAssist else { return }
+            handleUltraLiteAssistTick()
+        }
+        .onChange(of: viewModel.snapshot.navigation) { _, _ in
+            guard useUltraLiteAssist else { return }
+            handleTeslaNavigationChanged()
         }
     }
 
@@ -443,6 +454,40 @@ struct CarModeView: View {
                     .lineLimit(1)
             }
 
+            if let cameraText = speedCameraAlertEngine.latestAlertText {
+                Text(cameraText)
+                    .font(.system(size: 16, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(red: 0.92, green: 0.62, blue: 0.10))
+            } else if viewModel.snapshot.navigation != nil {
+                Text("단속 카메라: 경로 동기화 대기 중")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.black.opacity(0.55))
+            }
+
+            HStack(spacing: 8) {
+                if viewModel.snapshot.navigation == nil {
+                    Text("Tesla route: OFF")
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.55))
+                } else {
+                    Text("Tesla route: ON")
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(Color.green.opacity(0.8))
+                    Text(viewModel.navigationSummaryText)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.55))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                if kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Kakao key 필요")
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(Color.orange.opacity(0.9))
+                }
+            }
+
             HStack(spacing: 8) {
                 controlButton(title: "Wake", symbol: "bolt.fill", command: "wake_up", variant: .compact)
                 Button {
@@ -463,6 +508,86 @@ struct CarModeView: View {
                         .stroke(Color.black.opacity(0.06), lineWidth: 1)
                 )
         )
+    }
+
+    private func handleUltraLiteAssistTick() {
+        naviModel.updateVehicle(location: effectiveNaviLocation, speedKph: effectiveNaviSpeedKph)
+        updateSpeedCameraAlerts()
+
+        Task {
+            await syncRouteFromTeslaIfNeeded(force: false)
+            await naviModel.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: false)
+            updateSpeedCameraAlerts()
+        }
+    }
+
+    private func handleTeslaNavigationChanged() {
+        // Reset when Tesla route ends.
+        guard let destination = viewModel.snapshot.navigation?.destination, destination.isValid else {
+            lastSyncedTeslaRouteSignature = ""
+            naviModel.clearRoute()
+            speedCameraAlertEngine.reset()
+            return
+        }
+
+        Task {
+            await syncRouteFromTeslaIfNeeded(force: true)
+            updateSpeedCameraAlerts()
+        }
+    }
+
+    private func updateSpeedCameraAlerts() {
+        // Only speak alerts when we have an active route.
+        guard viewModel.snapshot.navigation != nil else {
+            if speedCameraAlertEngine.latestAlertText != nil {
+                speedCameraAlertEngine.reset()
+            }
+            return
+        }
+
+        speedCameraAlertEngine.update(
+            nextGuide: naviModel.nextSpeedCameraGuide,
+            distanceMeters: naviModel.distanceToNextSpeedCameraMeters(),
+            speedKph: effectiveNaviSpeedKph
+        )
+    }
+
+    private var teslaRouteSignature: String {
+        guard let destination = viewModel.snapshot.navigation?.destination, destination.isValid else { return "" }
+        let destinationName = viewModel.snapshot.navigation?.destinationName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return String(format: "%.5f,%.5f|%@", destination.lat, destination.lon, destinationName)
+    }
+
+    private func syncRouteFromTeslaIfNeeded(force: Bool) async {
+        guard let nav = viewModel.snapshot.navigation,
+              let destination = nav.destination,
+              destination.isValid else {
+            return
+        }
+        guard networkMonitor.isConnected else { return }
+
+        let signature = teslaRouteSignature
+        guard !signature.isEmpty else { return }
+
+        if !force, signature == lastSyncedTeslaRouteSignature, naviModel.route != nil {
+            return
+        }
+
+        // Prevent route API churn when GPS updates rapidly.
+        let now = Date()
+        if !force, now.timeIntervalSince(lastTeslaRouteAttemptAt) < 8 {
+            return
+        }
+        lastTeslaRouteAttemptAt = now
+
+        let key = kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        guard let origin = naviModel.vehicleCoordinate else { return }
+
+        await naviModel.startRoute(restAPIKey: key, origin: origin, destination: destination.coordinate)
+        if naviModel.route != nil {
+            lastSyncedTeslaRouteSignature = signature
+        }
     }
 
     private var regularCenterPanel: some View {

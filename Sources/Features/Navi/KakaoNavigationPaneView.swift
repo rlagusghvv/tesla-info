@@ -1450,7 +1450,7 @@ private extension KakaoNavigationPaneView {
 }
 
 @MainActor
-private final class SpeedCameraAlertEngine: ObservableObject {
+final class SpeedCameraAlertEngine: ObservableObject {
     @Published private(set) var latestAlertText: String?
 
     private let thresholdsMeters = [1000, 500, 300, 150]

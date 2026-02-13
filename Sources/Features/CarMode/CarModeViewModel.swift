@@ -126,6 +126,7 @@ final class CarModeViewModel: ObservableObject {
                         snapshot = latest
                     }
                 }
+                applyOptimisticControlState(for: command, response: response)
                 commandMessage = response.message
                 if !response.ok {
                     errorMessage = compactErrorMessage(response.message)
@@ -272,6 +273,72 @@ final class CarModeViewModel: ObservableObject {
             return String(trimmed.prefix(220)) + "..."
         }
         return trimmed
+    }
+
+    private func applyOptimisticControlState(for command: String, response: CommandResponse) {
+        // Tesla/Fleet state can lag a few seconds after a successful command.
+        // Patch the local snapshot immediately so the UI feels responsive.
+        guard response.ok else { return }
+
+        let targetLocked: Bool? = {
+            switch command {
+            case "door_lock":
+                return true
+            case "door_unlock":
+                return false
+            default:
+                return nil
+            }
+        }()
+
+        let targetClimateOn: Bool? = {
+            switch command {
+            case "auto_conditioning_start":
+                return true
+            case "auto_conditioning_stop":
+                return false
+            default:
+                return nil
+            }
+        }()
+
+        guard targetLocked != nil || targetClimateOn != nil else { return }
+
+        let vehicle = snapshot.vehicle
+        let patchedVehicle = VehicleData(
+            vin: vehicle.vin,
+            displayName: vehicle.displayName,
+            onlineState: vehicle.onlineState,
+            batteryLevel: vehicle.batteryLevel,
+            usableBatteryLevel: vehicle.usableBatteryLevel,
+            estimatedRangeKm: vehicle.estimatedRangeKm,
+            insideTempC: vehicle.insideTempC,
+            outsideTempC: vehicle.outsideTempC,
+            odometerKm: vehicle.odometerKm,
+            speedKph: vehicle.speedKph,
+            headingDeg: vehicle.headingDeg,
+            isLocked: targetLocked ?? vehicle.isLocked,
+            isClimateOn: targetClimateOn ?? vehicle.isClimateOn,
+            location: vehicle.location
+        )
+
+        let now = ISO8601DateFormatter().string(from: Date())
+        let existingLog = snapshot.lastCommand
+        let log = existingLog ?? CommandLog(
+            command: command,
+            ok: response.ok,
+            message: response.message,
+            at: now
+        )
+
+        snapshot = VehicleSnapshot(
+            source: snapshot.source,
+            mode: snapshot.mode,
+            updatedAt: now,
+            lastCommand: log,
+            navigation: snapshot.navigation,
+            vehicle: patchedVehicle
+        )
     }
 
     private func shouldReplaceSnapshot(with latest: VehicleSnapshot) -> Bool {
