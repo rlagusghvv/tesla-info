@@ -28,7 +28,7 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    environment:
-      # Set in .env: CF_TUNNEL_TOKEN=...
-      CF_TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
-    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CF_TUNNEL_TOKEN}"]
+    volumes:
+      - /Users/kimhyunhomacmini/.cloudflared/790d9e75-55ef-43d1-95d4-ffe8a30cf752.json:/etc/cloudflared/creds.json:ro
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]

@@ -1,0 +1,11 @@
+# cloudflared tunnel config (docker)
+# Uses local credentials json mounted into container.
+
+tunnel: coupelephant
+credentials-file: /etc/cloudflared/creds.json
+
+ingress:
+  - hostname: tesla.splui.com
+    service: http://backend:8787
+  # (Optional) keep only what this stack needs. Add more hostnames if required.
+  - service: http_status:404
