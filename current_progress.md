@@ -5,13 +5,23 @@ When resuming work, read this file first and continue from **[다음 단계]**.
 
 ## 2026-02-12
 
-## 2026-02-13 (00:03 진행상태)
-- 메인 `https://app.splui.com/app/` 가 Next(basePath=/app)로 서빙되는 상태에서
-  내부 링크가 루트(/analyze 등)로 박혀 404/비정상처럼 보이던 문제를 수정 진행 중.
-- 반영 완료된 커밋(서버 pull + 재시작 필요):
-  - (링크/basePath 대응) `039a916` next/link 전환
-  - (404 방지) `c4ebe04` legacy 경로들 페이지 스켈레톤 복구
-- 다음 액션: 서버 머신에서 pull/restart 후 404 경로가 실제로 살아나는지 검증 → 이후 각 페이지에 기능 이식
+## 2026-02-13 (09:04 진행상태)
+- 메인 `https://app.splui.com/app/` 기준으로 **페이지 동작 복구 확인**:
+  - `GET /app/analyze` -> 200
+  - `GET /app/keyword` -> 200 (신 디자인 스켈레톤 페이지 노출)
+  - `GET /app/payment` -> 200
+  - `GET /app/itemmanagement` -> 200
+- 수정 핵심: Next.js basePath(`/app`) 환경에서 내부 링크를 `next/link`로 바꿔 404/먹통을 제거.
+- 추가: 기존 메인에서 사용하던 주요 경로들(`/keyword`, `/payment`, `/itemmanagement`, `/trackingSales`, `/report`, `/login`, `/signup`, `/personalInformationPolicy`)에
+  **신 디자인 페이지 뼈대**를 우선 생성해 “안 열림/하얀 화면” 방지.
+
+### [남은 작업(기능 이식)]
+- 현재는 ‘경로 복구 + 신 디자인 스켈레톤’ 단계.
+- 다음은 각 페이지에 기존 기능(API/데이터/컴포넌트)을 실제로 이식해야 함:
+  1) 발굴(`/keyword`)
+  2) 관리(`/itemmanagement`)
+  3) 판매량 추적(`/trackingSales`)
+  4) 리포트(`/report`)
 
 ### [쿠팡 코끼리 - 문제 파악]
 - 초기에는 repo(`tesla-info/_repo`)에서 "쿠팡/코끼리/coupang/elephant" 키워드 및 관련 파일명 검색 결과 0건이었음.
