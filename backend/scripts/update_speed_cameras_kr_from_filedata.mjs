@@ -182,38 +182,39 @@ function parseContentDispositionFilename(headerValue) {
   return plain && plain[1] ? plain[1].trim() : null;
 }
 
-function extractFileDataIds(html, stdId) {
-  const ids = new Set();
-  const candidates = [];
+function extractFileDataDetailPks(html) {
+  // On the standard dataset detail page, file datasets are listed as:
+  //   onclick="stdObj.fn_fileDataDetail('uddi:...')"
+  // The value passed is the "publicDataDetailPk" used by selectFileDataDownload.do.
+  const matches = html.matchAll(/stdObj\.fn_fileDataDetail\('([^']+)'\)/g);
+  const result = [];
+  const seen = new Set();
 
-  // Common pattern: /data/<id>/fileData.do
-  for (const match of html.matchAll(/\/data\/(\d{6,})\/fileData\.do/gi)) {
-    candidates.push(match[1]);
-  }
-
-  // Less common pattern: fileData.do?dataId=<id>
-  for (const match of html.matchAll(/fileData\.do\?[^\"']*?\bdataId=(\d{6,})/gi)) {
-    candidates.push(match[1]);
-  }
-
-  for (const id of candidates) {
-    if (!id) {
+  for (const match of matches) {
+    const pk = String(match?.[1] || '').trim();
+    if (!pk) {
       continue;
     }
-    ids.add(id);
+    if (seen.has(pk)) {
+      continue;
+    }
+    seen.add(pk);
+    result.push(pk);
   }
 
-  // Sometimes the page doesn't embed all ids; ensure stdId is included to at least fetch one dataset.
-  if (stdId) {
-    ids.add(stdId);
-  }
-
-  return Array.from(ids);
+  return result;
 }
 
-function extractUddi(html) {
-  const match = html.match(/uddi:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
-  return match ? match[0] : null;
+function extractMaxPageIndex(html) {
+  // Pagination links look like: onclick="stdObj.fn_pageClick(26); return false;"
+  let max = 1;
+  for (const match of html.matchAll(/stdObj\.fn_pageClick\((\d+)\)/g)) {
+    const n = Number(match?.[1]);
+    if (Number.isFinite(n) && n > max) {
+      max = n;
+    }
+  }
+  return max;
 }
 
 function findFirstKeyValue(obj, key) {
@@ -247,23 +248,11 @@ function findFirstKeyValue(obj, key) {
   return null;
 }
 
-async function downloadFile({ dataId, uddi, destDir }) {
-  const metaUrl = `${BASE}/tcs/dss/selectFileDataDownload.do?publicDataPk=${encodeURIComponent(
-    dataId
-  )}&publicDataDetailPk=${encodeURIComponent(uddi)}`;
-  const meta = await fetchJson(metaUrl);
-
-  const atchFileId = findFirstKeyValue(meta, 'atchFileId');
-  const fileDetailSn = findFirstKeyValue(meta, 'fileDetailSn') ?? '1';
-
-  if (!atchFileId) {
-    const preview = JSON.stringify(meta).slice(0, 240);
-    throw new Error(`Missing atchFileId in meta for dataId=${dataId}: ${preview}`);
-  }
-
-  const downloadUrl = `${BASE}/dataset/fileDownload.do?atchFileId=${encodeURIComponent(
+async function downloadFileByAtchId({ atchFileId, fileDetailSn, dataNm, outPath }) {
+  // The portal uses /cmm/cmm/fileDownload.do (see fn_fileDownload/fn_fileDataDownload in script_cmmFunction.js).
+  const downloadUrl = `${BASE}/cmm/cmm/fileDownload.do?atchFileId=${encodeURIComponent(
     atchFileId
-  )}&fileDetailSn=${encodeURIComponent(fileDetailSn)}&publicDataDetailPk=${encodeURIComponent(uddi)}`;
+  )}&fileDetailSn=${encodeURIComponent(fileDetailSn)}&dataNm=${encodeURIComponent(String(dataNm))}`;
 
   const res = await fetch(downloadUrl, {
     redirect: 'follow',
@@ -271,74 +260,92 @@ async function downloadFile({ dataId, uddi, destDir }) {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} downloading dataId=${dataId}: ${body.slice(0, 240)}`);
+    throw new Error(
+      `HTTP ${res.status} downloading atchFileId=${atchFileId} sn=${fileDetailSn}: ${body.slice(0, 240)}`
+    );
   }
 
-  const cd = res.headers.get('content-disposition');
-  const filenameRaw = parseContentDispositionFilename(cd) || `data_${dataId}.csv`;
-  const filename = safeFilename(filenameRaw);
-  const filePath = path.resolve(destDir, filename);
-
   const bytes = new Uint8Array(await res.arrayBuffer());
-  await fs.mkdir(destDir, { recursive: true });
-  await fs.writeFile(filePath, bytes);
-
-  return { filePath, filename, bytes };
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await fs.writeFile(outPath, bytes);
+  return { bytes };
 }
 
 function parseCamerasFromCsvBytes(bytes) {
-  const text = decodeUtf8(bytes);
-  const rows = parseCsvRows(text);
-  if (!rows.length) {
-    return [];
-  }
+  const view =
+    bytes && bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+      ? bytes.subarray(3)
+      : bytes;
 
-  const header = rows[0].map((v) => String(v || '').trim());
-  const idx = (keys) => {
-    for (const key of keys) {
-      const i = header.findIndex((h) => h === key);
-      if (i >= 0) {
-        return i;
-      }
+  const decode = (encoding) => new TextDecoder(encoding, { fatal: false }).decode(view);
+
+  const parseWithText = (text) => {
+    const rows = parseCsvRows(text);
+    if (!rows.length) {
+      return { cameras: [], header: [] };
     }
-    return -1;
+
+    const header = rows[0].map((v) => String(v || '').trim());
+    const idx = (exactKeys, containsKeys = []) => {
+      for (const key of exactKeys) {
+        const i = header.findIndex((h) => h === key);
+        if (i >= 0) {
+          return i;
+        }
+      }
+      for (const key of containsKeys) {
+        const i = header.findIndex((h) => String(h || '').includes(key));
+        if (i >= 0) {
+          return i;
+        }
+      }
+      return -1;
+    };
+
+    // manageNo is not globally unique across municipalities, so we do not use it as the primary id.
+    const latIdx = idx(['latitude', '위도', 'lat'], ['위도']);
+    const lonIdx = idx(['longitude', '경도', 'lon', 'lng'], ['경도']);
+    const limitIdx = idx(['lmttVe', '제한속도'], ['제한속도']);
+
+    if (latIdx < 0 || lonIdx < 0) {
+      return { cameras: [], header };
+    }
+
+    const cameras = [];
+    for (let r = 1; r < rows.length; r += 1) {
+      const row = rows[r];
+      if (!row || !row.length) {
+        continue;
+      }
+
+      const lat = asNumber(row[latIdx]);
+      const lon = asNumber(row[lonIdx]);
+      if (lat == null || lon == null) {
+        continue;
+      }
+
+      const id = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+      const limit = limitIdx >= 0 ? asInt(row[limitIdx]) : null;
+
+      cameras.push({
+        id,
+        lat,
+        lon,
+        limitKph: limit != null && limit > 0 ? limit : null
+      });
+    }
+
+    return { cameras, header };
   };
 
-  const manageIdx = idx(['mnlssRegltCameraManageNo', '관리번호']);
-  const latIdx = idx(['latitude', '위도', 'lat']);
-  const lonIdx = idx(['longitude', '경도', 'lon', 'lng']);
-  const limitIdx = idx(['lmttVe', '제한속도']);
-
-  if (latIdx < 0 || lonIdx < 0) {
-    return [];
+  // Most fileData CSVs are UTF-8 with BOM, but some datasets are EUC-KR/CP949.
+  // Try UTF-8 first, then fallback to EUC-KR if we can't find lat/lon columns.
+  const utf8 = parseWithText(decode('utf-8'));
+  if (utf8.cameras.length) {
+    return utf8.cameras;
   }
-
-  const cameras = [];
-  for (let r = 1; r < rows.length; r += 1) {
-    const row = rows[r];
-    if (!row || !row.length) {
-      continue;
-    }
-
-    const lat = asNumber(row[latIdx]);
-    const lon = asNumber(row[lonIdx]);
-    if (lat == null || lon == null) {
-      continue;
-    }
-
-    const manageNo = manageIdx >= 0 ? String(row[manageIdx] || '').trim() : '';
-    const id = manageNo || `${lat.toFixed(6)},${lon.toFixed(6)}`;
-    const limit = limitIdx >= 0 ? asInt(row[limitIdx]) : null;
-
-    cameras.push({
-      id,
-      lat,
-      lon,
-      limitKph: limit != null && limit > 0 ? limit : null
-    });
-  }
-
-  return cameras;
+  const euckr = parseWithText(decode('euc-kr'));
+  return euckr.cameras;
 }
 
 async function main() {
@@ -347,36 +354,85 @@ async function main() {
   const stdUrl = `${BASE}/tcs/dss/selectStdDataDetailView.do?publicDataPk=${encodeURIComponent(STD_ID)}`;
   console.log(`Fetching std page: ${stdUrl}`);
   const stdHtml = await fetchText(stdUrl);
-  const ids = extractFileDataIds(stdHtml, STD_ID);
 
-  console.log(`Found ${ids.length} candidate fileData ids (std=${STD_ID}).`);
-  const selectedIds = MAX_DATASETS > 0 ? ids.slice(0, MAX_DATASETS) : ids;
+  const maxPage = extractMaxPageIndex(stdHtml);
+  const pkSeen = new Set();
+  const detailPks = [];
 
-  const seen = new Set();
-  const all = [];
+  const targetCount = MAX_DATASETS > 0 ? MAX_DATASETS : Number.POSITIVE_INFINITY;
+  const addPks = (pks) => {
+    for (const pk of pks) {
+      if (pkSeen.has(pk)) {
+        continue;
+      }
+      pkSeen.add(pk);
+      detailPks.push(pk);
+      if (detailPks.length >= targetCount) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Page 1 is embedded in the std detail view itself.
+  addPks(extractFileDataDetailPks(stdHtml));
+
+  // Remaining pages are loaded via AJAX; fetch them directly.
+  if (detailPks.length < targetCount) {
+    for (let pageIndex = 2; pageIndex <= maxPage; pageIndex += 1) {
+      const pageUrl = `${BASE}/tcs/dss/stdFileList.do?publicDataPk=${encodeURIComponent(
+        STD_ID
+      )}&pageIndex=${encodeURIComponent(pageIndex)}`;
+      const pageHtml = await fetchText(pageUrl);
+      if (addPks(extractFileDataDetailPks(pageHtml))) {
+        break;
+      }
+      // Be polite to the portal.
+      await sleep(120);
+    }
+  }
+
+  console.log(`Found ${detailPks.length} fileData entries (std=${STD_ID}; pages=${maxPage}).`);
+  const selectedDetailPks = MAX_DATASETS > 0 ? detailPks.slice(0, MAX_DATASETS) : detailPks;
+
+  const byCoord = new Map();
   let okDatasets = 0;
 
-  for (let i = 0; i < selectedIds.length; i += 1) {
-    const dataId = selectedIds[i];
-    const detailUrl = `${BASE}/data/${encodeURIComponent(dataId)}/fileData.do`;
-    console.log(`[${i + 1}/${selectedIds.length}] detail=${detailUrl}`);
+  for (let i = 0; i < selectedDetailPks.length; i += 1) {
+    const publicDataDetailPk = selectedDetailPks[i];
+    console.log(`[${i + 1}/${selectedDetailPks.length}] pk=${publicDataDetailPk}`);
 
-    let detailHtml = '';
+    // We need meta to resolve atchFileId/fileDetailSn and also to know a stable-ish dataset name.
+    // If the raw CSV exists, we still parse it; but meta is cheap and helps logging.
+    let meta = null;
     try {
-      detailHtml = await fetchText(detailUrl);
+      const metaUrl = `${BASE}/tcs/dss/selectFileDataDownload.do?recommendDataYn=Y&publicDataPk=${encodeURIComponent(
+        STD_ID
+      )}&publicDataDetailPk=${encodeURIComponent(publicDataDetailPk)}`;
+      meta = await fetchJson(metaUrl);
     } catch (error) {
-      console.warn(`  skip dataId=${dataId} (detail fetch failed): ${error instanceof Error ? error.message : error}`);
+      console.warn(`  skip pk=${publicDataDetailPk} (meta fetch failed): ${error instanceof Error ? error.message : error}`);
       continue;
     }
 
-    const uddi = extractUddi(detailHtml);
-    if (!uddi) {
-      console.warn(`  skip dataId=${dataId} (uddi not found)`);
+    const ok = meta?.status === true || meta?.status === 'true';
+    if (!ok) {
+      const reason = String(meta?.errorDc || meta?.message || '').trim();
+      console.warn(`  skip pk=${publicDataDetailPk} (meta status=false)${reason ? `: ${reason}` : ''}`);
       continue;
     }
 
-    // Cache download to avoid repeated network work.
-    const cacheKey = safeFilename(`${dataId}_${uddi}.csv`);
+    const dataNm = findFirstKeyValue(meta, 'dataNm') || findFirstKeyValue(meta, 'dataSetNm') || 'speed_cameras_kr';
+    const atchFileId = findFirstKeyValue(meta, 'atchFileId');
+    const fileDetailSn = findFirstKeyValue(meta, 'fileDetailSn') ?? '1';
+
+    if (!atchFileId) {
+      console.warn(`  skip pk=${publicDataDetailPk} (missing atchFileId)`);
+      continue;
+    }
+
+    // Cache by atchFileId + fileDetailSn (more stable than detailPk suffixes).
+    const cacheKey = safeFilename(`${String(dataNm).trim() || 'speed_cameras'}_${atchFileId}_${fileDetailSn}.csv`);
     const cachePath = path.resolve(DOWNLOAD_DIR, cacheKey);
 
     let bytes = null;
@@ -389,37 +445,49 @@ async function main() {
 
     if (!bytes) {
       try {
-        const downloaded = await downloadFile({ dataId, uddi, destDir: DOWNLOAD_DIR });
-        // Also write a stable cache path for future runs.
-        await fs.writeFile(cachePath, downloaded.bytes);
+        const downloaded = await downloadFileByAtchId({
+          atchFileId,
+          fileDetailSn,
+          dataNm,
+          outPath: cachePath
+        });
         bytes = downloaded.bytes;
-        console.log(`  downloaded: ${downloaded.filename}`);
+
+        console.log(`  downloaded -> ${cacheKey}`);
         // Be polite to the portal.
         await sleep(250);
       } catch (error) {
-        console.warn(`  skip dataId=${dataId} (download failed): ${error instanceof Error ? error.message : error}`);
+        console.warn(`  skip pk=${publicDataDetailPk} (download failed): ${error instanceof Error ? error.message : error}`);
         continue;
       }
     }
 
     const cameras = parseCamerasFromCsvBytes(bytes);
     if (!cameras.length) {
-      console.warn(`  parsed 0 cameras from dataId=${dataId} (unexpected schema?)`);
+      console.warn(`  parsed 0 cameras from pk=${publicDataDetailPk} (unexpected schema/encoding?)`);
       continue;
     }
 
     okDatasets += 1;
     for (const cam of cameras) {
-      if (seen.has(cam.id)) {
+      const existing = byCoord.get(cam.id);
+      if (!existing) {
+        byCoord.set(cam.id, cam);
         continue;
       }
-      seen.add(cam.id);
-      all.push(cam);
+
+      // Prefer a known speed limit; if conflicting, keep the smaller (more conservative) limit.
+      if (existing.limitKph == null && cam.limitKph != null) {
+        existing.limitKph = cam.limitKph;
+      } else if (existing.limitKph != null && cam.limitKph != null && existing.limitKph !== cam.limitKph) {
+        existing.limitKph = Math.min(existing.limitKph, cam.limitKph);
+      }
     }
 
-    console.log(`  +${cameras.length} rows, total unique=${all.length}`);
+    console.log(`  +${cameras.length} rows, total unique=${byCoord.size}`);
   }
 
+  const all = Array.from(byCoord.values());
   all.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   const payload = {
@@ -442,4 +510,3 @@ main().catch((err) => {
   console.error(err?.stack || String(err));
   process.exit(1);
 });
-
