@@ -1,0 +1,1062 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Subdash – Tesla Drive Assist</title>
+    <meta
+      name="description"
+      content="테슬라 순정 내비는 그대로. iPhone은 백그라운드에서 경로를 따라 과속·단속 카메라 경보를 제공합니다."
+    />
+    <meta name="theme-color" content="#f5f7ff" />
+
+    <style>
+      /* Toss-ish: bright background, clean type, bold blue accents, rounded cards. */
+      @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
+
+      :root {
+        --bg: #f5f7ff;
+        --bg-2: #f2f4f6;
+        --card: #ffffff;
+        --text: #191f28;
+        --muted: rgba(25, 31, 40, 0.62);
+        --muted-2: rgba(25, 31, 40, 0.48);
+        --border: rgba(23, 32, 46, 0.10);
+        --shadow: 0 12px 30px rgba(16, 24, 40, 0.10);
+        --shadow-soft: 0 8px 24px rgba(16, 24, 40, 0.08);
+        --primary: #2f6fff;
+        --primary-2: #1e57ff;
+        --primary-soft: rgba(47, 111, 255, 0.12);
+        --success: #12b76a;
+        --warn: #f79009;
+        --radius: 22px;
+        --radius-sm: 16px;
+        --container: 1080px;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        font-family: Pretendard, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        color: var(--text);
+        background: radial-gradient(1200px 620px at 14% 8%, rgba(47, 111, 255, 0.18), rgba(47, 111, 255, 0) 55%),
+          radial-gradient(900px 560px at 86% 24%, rgba(18, 183, 106, 0.12), rgba(18, 183, 106, 0) 60%),
+          linear-gradient(180deg, var(--bg), var(--bg-2));
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .container {
+        width: min(var(--container), calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        backdrop-filter: blur(10px);
+        background: rgba(245, 247, 255, 0.72);
+        border-bottom: 1px solid rgba(23, 32, 46, 0.06);
+      }
+
+      .nav-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 0;
+        gap: 12px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+      }
+
+      .mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(47, 111, 255, 1), rgba(30, 87, 255, 1));
+        box-shadow: 0 10px 26px rgba(47, 111, 255, 0.28);
+        position: relative;
+      }
+
+      .mark:before,
+      .mark:after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 12px;
+      }
+
+      .mark:before {
+        background: radial-gradient(14px 12px at 28% 30%, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 62%);
+      }
+
+      .brand span {
+        font-size: 18px;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .nav-links a {
+        font-size: 13px;
+        font-weight: 800;
+        color: var(--muted);
+        padding: 10px 10px;
+        border-radius: 14px;
+      }
+
+      .nav-links a:hover {
+        background: rgba(25, 31, 40, 0.05);
+        color: rgba(25, 31, 40, 0.85);
+      }
+
+      .nav-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 14px;
+        border-radius: 16px;
+        font-weight: 900;
+        font-size: 13px;
+        color: white;
+        background: linear-gradient(180deg, var(--primary), var(--primary-2));
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        box-shadow: 0 14px 32px rgba(47, 111, 255, 0.22);
+      }
+
+      .hero {
+        padding: 54px 0 26px;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 28px;
+        align-items: center;
+      }
+
+      @media (max-width: 920px) {
+        .hero-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        border-radius: 999px;
+        background: rgba(47, 111, 255, 0.12);
+        color: rgba(30, 87, 255, 0.92);
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: -0.01em;
+        border: 1px solid rgba(47, 111, 255, 0.18);
+      }
+
+      .pill .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 99px;
+        background: rgba(30, 87, 255, 0.95);
+        box-shadow: 0 0 0 4px rgba(47, 111, 255, 0.18);
+      }
+
+      h1 {
+        margin: 14px 0 10px;
+        font-size: 46px;
+        line-height: 1.06;
+        letter-spacing: -0.04em;
+        font-weight: 950;
+      }
+
+      @media (max-width: 480px) {
+        h1 {
+          font-size: 38px;
+        }
+      }
+
+      .lead {
+        margin: 0 0 18px;
+        font-size: 16px;
+        line-height: 1.55;
+        color: var(--muted);
+        font-weight: 650;
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin: 18px 0 0;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 13px 14px;
+        border-radius: 18px;
+        font-weight: 950;
+        font-size: 14px;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .btn.primary {
+        color: white;
+        background: linear-gradient(180deg, var(--primary), var(--primary-2));
+        box-shadow: 0 16px 36px rgba(47, 111, 255, 0.22);
+      }
+
+      .btn.secondary {
+        background: rgba(255, 255, 255, 0.78);
+        color: rgba(25, 31, 40, 0.86);
+        border: 1px solid rgba(23, 32, 46, 0.10);
+        box-shadow: var(--shadow-soft);
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+
+      .mini {
+        margin-top: 10px;
+        color: var(--muted-2);
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 1.5;
+      }
+
+      .hero-card {
+        background: rgba(255, 255, 255, 0.85);
+        border: 1px solid rgba(23, 32, 46, 0.10);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 18px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .hero-card:before {
+        content: "";
+        position: absolute;
+        inset: -80px -80px auto auto;
+        width: 220px;
+        height: 220px;
+        background: radial-gradient(circle at 40% 40%, rgba(47, 111, 255, 0.22), rgba(47, 111, 255, 0));
+        filter: blur(2px);
+      }
+
+      .phone {
+        border-radius: 28px;
+        border: 1px solid rgba(23, 32, 46, 0.12);
+        background: linear-gradient(180deg, #0b1220, #0d1830);
+        box-shadow: 0 24px 60px rgba(16, 24, 40, 0.22);
+        width: min(360px, 100%);
+        aspect-ratio: 9 / 19.5;
+        margin: 0 auto;
+        padding: 16px;
+        position: relative;
+      }
+
+      .island {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 42%;
+        height: 18px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+      }
+
+      .screen {
+        position: absolute;
+        inset: 52px 14px 14px;
+        border-radius: 22px;
+        background: radial-gradient(800px 280px at 50% 0%, rgba(47, 111, 255, 0.18), rgba(47, 111, 255, 0)),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        overflow: hidden;
+      }
+
+      .badge-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+      }
+
+      .badge {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 12px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.78);
+        border: 1px solid rgba(23, 32, 46, 0.10);
+        box-shadow: 0 10px 24px rgba(16, 24, 40, 0.10);
+        font-size: 12px;
+        font-weight: 850;
+        color: rgba(25, 31, 40, 0.78);
+      }
+
+      .badge svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .section {
+        padding: 52px 0;
+      }
+
+      .section-title {
+        font-size: 28px;
+        font-weight: 950;
+        letter-spacing: -0.03em;
+        margin: 0 0 10px;
+      }
+
+      .section-sub {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-weight: 650;
+        line-height: 1.6;
+      }
+
+      .grid-3 {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+
+      @media (max-width: 920px) {
+        .grid-3 {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .card {
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid rgba(23, 32, 46, 0.10);
+        border-radius: var(--radius);
+        padding: 18px;
+        box-shadow: var(--shadow-soft);
+      }
+
+      .card h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 950;
+        letter-spacing: -0.02em;
+      }
+
+      .card p {
+        margin: 10px 0 0;
+        color: var(--muted);
+        line-height: 1.6;
+        font-weight: 650;
+        font-size: 14px;
+      }
+
+      .kpi {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      @media (max-width: 920px) {
+        .kpi {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .kpi .card {
+        padding: 16px;
+      }
+
+      .kpi .num {
+        font-size: 22px;
+        font-weight: 950;
+        letter-spacing: -0.03em;
+        margin: 0;
+      }
+
+      .kpi .label {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .pricing {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 14px;
+        align-items: start;
+      }
+
+      @media (max-width: 920px) {
+        .pricing {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .price-box {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(47, 111, 255, 0.22);
+        border-radius: var(--radius);
+        box-shadow: 0 18px 48px rgba(47, 111, 255, 0.12);
+        padding: 18px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .price-box:before {
+        content: "";
+        position: absolute;
+        inset: auto -80px -80px auto;
+        width: 280px;
+        height: 280px;
+        background: radial-gradient(circle at 30% 30%, rgba(47, 111, 255, 0.22), rgba(47, 111, 255, 0));
+      }
+
+      .plan-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 950;
+      }
+
+      .plan-desc {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-weight: 650;
+        line-height: 1.6;
+        font-size: 14px;
+      }
+
+      .plan-price {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        margin-top: 14px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .plan-price .value {
+        font-size: 34px;
+        font-weight: 950;
+        letter-spacing: -0.03em;
+      }
+
+      .plan-price .unit {
+        color: var(--muted);
+        font-weight: 850;
+      }
+
+      .checklist {
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+        position: relative;
+        z-index: 1;
+      }
+
+      .checklist li {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 10px 0;
+        border-top: 1px solid rgba(23, 32, 46, 0.08);
+        font-weight: 800;
+        color: rgba(25, 31, 40, 0.82);
+        font-size: 13px;
+      }
+
+      .checklist li:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .check {
+        width: 18px;
+        height: 18px;
+        border-radius: 99px;
+        background: rgba(18, 183, 106, 0.14);
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+        margin-top: 1px;
+        border: 1px solid rgba(18, 183, 106, 0.22);
+      }
+
+      .check svg {
+        width: 12px;
+        height: 12px;
+        color: rgba(18, 183, 106, 0.98);
+      }
+
+      .fineprint {
+        margin-top: 10px;
+        color: var(--muted-2);
+        font-weight: 650;
+        line-height: 1.55;
+        font-size: 12px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .faq {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      details {
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid rgba(23, 32, 46, 0.10);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        box-shadow: var(--shadow-soft);
+      }
+
+      summary {
+        cursor: pointer;
+        font-weight: 950;
+        font-size: 14px;
+        color: rgba(25, 31, 40, 0.88);
+      }
+
+      details p {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-weight: 650;
+        line-height: 1.65;
+        font-size: 14px;
+      }
+
+      .footer {
+        padding: 40px 0 56px;
+        border-top: 1px solid rgba(23, 32, 46, 0.08);
+        background: rgba(245, 247, 255, 0.35);
+      }
+
+      .footer-grid {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 16px;
+        align-items: start;
+      }
+
+      @media (max-width: 920px) {
+        .footer-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .footer p {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-weight: 650;
+        line-height: 1.6;
+        font-size: 13px;
+      }
+
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: flex-end;
+        align-items: center;
+      }
+
+      @media (max-width: 920px) {
+        .footer-links {
+          justify-content: flex-start;
+        }
+      }
+
+      .footer-links a {
+        font-weight: 900;
+        color: rgba(25, 31, 40, 0.72);
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.66);
+        border: 1px solid rgba(23, 32, 46, 0.08);
+      }
+
+      .footer-links a:hover {
+        background: rgba(255, 255, 255, 0.82);
+      }
+    </style>
+  </head>
+
+  <body>
+    <header class="nav">
+      <div class="container nav-inner">
+        <a class="brand" href="/">
+          <span class="mark" aria-hidden="true"></span>
+          <span>SUBDASH</span>
+        </a>
+
+        <nav class="nav-links" aria-label="Subdash navigation">
+          <a href="#how">작동 방식</a>
+          <a href="#features">기능</a>
+          <a href="#pricing">구독</a>
+          <a href="#faq">FAQ</a>
+          <a class="nav-cta" href="#pricing">무료 체험 시작</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="container hero-grid">
+          <div>
+            <div class="pill"><span class="dot" aria-hidden="true"></span> iPhone 백그라운드 주행 보조</div>
+            <h1>순정 Tesla 내비는 그대로.<br />과속·단속 카메라는 더 똑똑하게.</h1>
+            <p class="lead">
+              목적지는 <b>테슬라</b>에만 설정하세요. iPhone은 백그라운드에서 경로를 따라 단속 카메라 접근과
+              과속(제한+여유치)을 <b>음성 + 삐삐</b>로 알려줍니다.
+            </p>
+
+            <div class="hero-actions">
+              <a class="btn primary" href="#pricing">
+                <span>무료 체험 시작</span>
+                <span aria-hidden="true">→</span>
+              </a>
+              <a class="btn secondary" href="#how">어떻게 작동해요?</a>
+            </div>
+
+            <p class="mini">
+              이 앱은 Tesla/Apple과 무관한 서드파티 주행 보조 도구입니다. 단속/제한속도 정보는 공공데이터 및
+              지도/경로 API 기반으로 제공되며, 실제 도로 상황과 다를 수 있습니다.
+            </p>
+
+            <div class="badge-row">
+              <div class="badge">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 22s7-4.5 7-11V6.2a2 2 0 0 0-1.2-1.8l-5.2-2.3a2 2 0 0 0-1.6 0L5.2 4.4A2 2 0 0 0 4 6.2V11c0 6.5 8 11 8 11Z"
+                    stroke="rgba(25,31,40,.55)"
+                    stroke-width="1.8"
+                  />
+                  <path
+                    d="M9 12.2l1.7 1.7L15.4 9.2"
+                    stroke="rgba(18,183,106,.95)"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                개인정보 추적 없음
+              </div>
+              <div class="badge">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 3v4m0 10v4M3 12h4m10 0h4"
+                    stroke="rgba(25,31,40,.55)"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"
+                    stroke="rgba(47,111,255,.9)"
+                    stroke-width="2"
+                  />
+                </svg>
+                경로 동기화 기반
+              </div>
+              <div class="badge">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M4 14.5 12 3l8 11.5H4Z"
+                    stroke="rgba(25,31,40,.55)"
+                    stroke-width="1.8"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M12 9v4"
+                    stroke="rgba(247,144,9,.95)"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M12 16.2h.01"
+                    stroke="rgba(247,144,9,.95)"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                음성 + 삐삐 경보
+              </div>
+            </div>
+          </div>
+
+          <div class="hero-card" aria-label="Subdash preview">
+            <div class="phone">
+              <div class="island" aria-hidden="true"></div>
+              <div class="screen" aria-hidden="true">
+                <div style="padding: 14px">
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      align-items: center;
+                      color: rgba(255, 255, 255, 0.80);
+                      font-weight: 900;
+                      font-size: 12px;
+                    "
+                  >
+                    <span>Drive Assist</span>
+                    <span style="color: rgba(255, 255, 255, 0.55); font-weight: 800">ONLINE</span>
+                  </div>
+
+                  <div
+                    style="
+                      margin-top: 14px;
+                      border-radius: 18px;
+                      background: rgba(255, 255, 255, 0.08);
+                      border: 1px solid rgba(255, 255, 255, 0.10);
+                      padding: 14px;
+                    "
+                  >
+                    <div style="display: flex; align-items: baseline; gap: 10px">
+                      <div style="font-size: 52px; font-weight: 950; letter-spacing: -0.05em">82</div>
+                      <div style="font-size: 18px; font-weight: 900; color: rgba(255, 255, 255, 0.65)">km/h</div>
+                      <div style="margin-left: auto; font-size: 12px; font-weight: 900; color: rgba(255, 255, 255, 0.58)">
+                        Tesla route: ON
+                      </div>
+                    </div>
+
+                    <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap">
+                      <div
+                        style="
+                          padding: 10px 12px;
+                          border-radius: 14px;
+                          background: rgba(47, 111, 255, 0.16);
+                          border: 1px solid rgba(47, 111, 255, 0.22);
+                          font-weight: 950;
+                          font-size: 13px;
+                        "
+                      >
+                        과속 카메라 500m · 제한 80
+                      </div>
+                      <div
+                        style="
+                          padding: 10px 12px;
+                          border-radius: 14px;
+                          background: rgba(247, 144, 9, 0.14);
+                          border: 1px solid rgba(247, 144, 9, 0.18);
+                          font-weight: 950;
+                          font-size: 13px;
+                        "
+                      >
+                        과속! 제한 80
+                      </div>
+                    </div>
+                    <div style="margin-top: 10px; color: rgba(255, 255, 255, 0.52); font-size: 12px; font-weight: 800">
+                      음성 안내 + 삐삐 경고(구독)
+                    </div>
+                  </div>
+
+                  <div
+                    style="
+                      margin-top: 14px;
+                      display: grid;
+                      grid-template-columns: 1fr 1fr;
+                      gap: 10px;
+                    "
+                  >
+                    <div
+                      style="
+                        border-radius: 16px;
+                        background: rgba(255, 255, 255, 0.06);
+                        border: 1px solid rgba(255, 255, 255, 0.10);
+                        padding: 12px;
+                      "
+                    >
+                      <div style="font-size: 11px; color: rgba(255, 255, 255, 0.55); font-weight: 850">데이터</div>
+                      <div style="margin-top: 6px; font-size: 14px; font-weight: 950">전국 약 4만+</div>
+                    </div>
+                    <div
+                      style="
+                        border-radius: 16px;
+                        background: rgba(255, 255, 255, 0.06);
+                        border: 1px solid rgba(255, 255, 255, 0.10);
+                        padding: 12px;
+                      "
+                    >
+                      <div style="font-size: 11px; color: rgba(255, 255, 255, 0.55); font-weight: 850">권한</div>
+                      <div style="margin-top: 6px; font-size: 14px; font-weight: 950">항상 허용</div>
+                    </div>
+                  </div>
+
+                  <div style="margin-top: 14px; color: rgba(255, 255, 255, 0.38); font-size: 11px; font-weight: 800">
+                    실제 UI는 앱 빌드에 따라 달라질 수 있습니다.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="how" class="section">
+        <div class="container">
+          <h2 class="section-title">작동 방식</h2>
+          <p class="section-sub">
+            목표는 하나입니다. <b>폰으로 지도를 볼 필요를 없애고</b>, 테슬라 화면은 순정 내비 그대로 쓰는 것.
+          </p>
+
+          <div class="grid-3">
+            <div class="card">
+              <h3>1) 테슬라에서 목적지 설정</h3>
+              <p>
+                운전 중에는 테슬라 순정 내비만 봅니다. 목적지를 테슬라에만 설정하면 Subdash가 경로를 따라갑니다.
+              </p>
+            </div>
+            <div class="card">
+              <h3>2) iPhone은 백그라운드 보조</h3>
+              <p>
+                iPhone 위치(GPS)와 경로 동기화를 기반으로 다음 단속 카메라/제한속도를 계산합니다. 화면은 꺼두고
+                소리만 켜도 됩니다.
+              </p>
+            </div>
+            <div class="card">
+              <h3>3) 음성 + 삐삐 경보</h3>
+              <p>
+                1000/500/300/150m 단계별 안내와, 500m 이내 과속 감지 시 추가 경고(삐삐)를 제공합니다.
+              </p>
+            </div>
+          </div>
+
+          <div class="kpi" aria-label="Key points">
+            <div class="card">
+              <p class="num">전국 약 4만+</p>
+              <p class="label">무인 단속카메라 좌표 데이터</p>
+            </div>
+            <div class="card">
+              <p class="num">ETag 캐시</p>
+              <p class="label">데이터셋 업데이트 최적화</p>
+            </div>
+            <div class="card">
+              <p class="num">Fleet 기반</p>
+              <p class="label">차량 상태/명령/경로 동기화</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="section">
+        <div class="container">
+          <h2 class="section-title">핵심 기능</h2>
+          <p class="section-sub">“지도를 새로 만드는 것”이 아니라, 필요한 것만 빠르게 붙입니다.</p>
+
+          <div class="grid-3">
+            <div class="card">
+              <h3>전국 단속카메라 + 제한속도</h3>
+              <p>공공데이터 기반. 동일 좌표는 통합하고 제한속도는 보수적으로 병합합니다.</p>
+            </div>
+            <div class="card">
+              <h3>과속 경고(500m 이내)</h3>
+              <p>제한속도 기준으로 초과 시 즉시 경고합니다. 운전 중 체감이 핵심인 기능만 남깁니다.</p>
+            </div>
+            <div class="card">
+              <h3>경로 동기화(테슬라 목적지)</h3>
+              <p>테슬라에서 목적지를 바꾸면, iPhone은 자동으로 따라가도록 설계합니다.</p>
+            </div>
+            <div class="card">
+              <h3>가벼운 Car Mode UI</h3>
+              <p>주행에 필요한 정보만 한눈에. 속도/상태/다음 경보를 크게 보여줍니다.</p>
+            </div>
+            <div class="card">
+              <h3>토큰 만료/연결 상태 진단</h3>
+              <p>Fleet 토큰/백엔드 상태를 앱에서 바로 확인하고, 실패 시 멈추지 않게 설계합니다.</p>
+            </div>
+            <div class="card">
+              <h3>데이터셋 자동 캐시</h3>
+              <p>서버는 ETag로, 앱은 로컬 캐시로. 네트워크가 불안정해도 기본 동작을 유지합니다.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="pricing" class="section">
+        <div class="container">
+          <h2 class="section-title">구독</h2>
+          <p class="section-sub">일단 오늘은 “실사용 MVP”. 구독은 빠르게 검증하고, 안정성부터 올립니다.</p>
+
+          <div class="pricing">
+            <div class="price-box">
+              <p class="plan-title">Subdash Pro</p>
+              <p class="plan-desc">경로 동기화 기반 단속카메라/과속 경보. 일상 주행에 필요한 것만 딱.</p>
+
+              <div class="plan-price">
+                <div class="value">₩3,900</div>
+                <div class="unit">/ 월 (연간 ₩29,000)</div>
+              </div>
+
+              <ul class="checklist">
+                <li>
+                  <span class="check" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M6 12.5 10.1 16.5 18 8.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </span>
+                  단계별 음성 안내(1000/500/300/150m)
+                </li>
+                <li>
+                  <span class="check" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M6 12.5 10.1 16.5 18 8.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </span>
+                  500m 이내 과속 감지 경고(삐삐)
+                </li>
+                <li>
+                  <span class="check" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M6 12.5 10.1 16.5 18 8.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </span>
+                  전국 단속카메라 데이터 + 제한속도
+                </li>
+                <li>
+                  <span class="check" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M6 12.5 10.1 16.5 18 8.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </span>
+                  상태/연결 진단 + 자동 캐시
+                </li>
+              </ul>
+
+              <div class="hero-actions" style="margin-top: 16px; position: relative; z-index: 1">
+                <a class="btn primary" href="/support/">
+                  설치/설정 가이드 보기
+                  <span aria-hidden="true">→</span>
+                </a>
+                <a class="btn secondary" href="#faq">구독 FAQ</a>
+              </div>
+
+              <p class="fineprint">
+                7일 무료 체험(예정). 결제/구독은 App Store 인앱 결제로 처리됩니다. 가격/기능은 출시 정책에 따라
+                조정될 수 있습니다.
+              </p>
+            </div>
+
+            <div class="card">
+              <h3>무료로 먼저 검증하세요</h3>
+              <p>
+                지금은 “실사용 MVP” 단계라, 체험단 기반으로 안정성을 끌어올리는 중입니다. 주행 로그/개인정보를
+                서버에 저장하지 않고, 필요한 상태만 최소한으로 처리합니다.
+              </p>
+              <p style="margin-top: 14px">
+                문의: <b>support@splui.com</b>
+              </p>
+              <p style="margin-top: 10px; color: var(--muted-2); font-size: 12px">
+                개인정보 처리방침/이용약관은 아래 링크에서 확인 가능합니다.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="faq" class="section">
+        <div class="container">
+          <h2 class="section-title">FAQ</h2>
+          <p class="section-sub">운전 중에 헷갈릴 만한 질문만 모았습니다.</p>
+
+          <div class="faq">
+            <details>
+              <summary>테슬라 화면에 카플레이/지도처럼 띄워주나요?</summary>
+              <p>
+                아니요. 테슬라 순정 내비를 메인으로 사용하고, iPhone은 백그라운드에서 경보(음성/삐삐)만
+                제공합니다. “폰으로 지도를 보게 되는 UX”를 줄이는 게 목표입니다.
+              </p>
+            </details>
+            <details>
+              <summary>아이폰 GPS만으로도 충분한가요?</summary>
+              <p>
+                속도/좌표는 iPhone GPS를 사용합니다. iOS 설정에서 위치 권한을 “항상 허용” + “정확한 위치”로
+                켜면 레이턴시가 크게 줄어듭니다.
+              </p>
+            </details>
+            <details>
+              <summary>왜 카카오 경로 API가 필요한가요?</summary>
+              <p>
+                테슬라 목적지(좌표)만으로는 “경로 상의 다음 카메라”를 계산하기 어려워, 경로를 한 번 만들어
+                단속카메라 POI를 경로에 매칭합니다. (지도 화면을 보여주기 위한 용도가 아닙니다.)
+              </p>
+            </details>
+            <details>
+              <summary>정확도가 틀릴 수 있나요?</summary>
+              <p>
+                네. 공공데이터/지도 API 기반이라 실제 도로 상황과 차이가 있을 수 있습니다. 이 앱은 “단속 회피”
+                목적이 아니라 “안전 운전 보조” 목적입니다.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-grid">
+        <div>
+          <div class="brand" style="gap: 10px">
+            <span class="mark" aria-hidden="true"></span>
+            <span>SUBDASH</span>
+          </div>
+          <p>
+            Subdash is a third‑party driver assist tool. Tesla and Apple are trademarks of their respective owners.
+          </p>
+          <p style="color: rgba(25, 31, 40, 0.46); font-size: 12px">
+            Copyright © <span id="year"></span> SPLUI. All rights reserved.
+          </p>
+        </div>
+        <div class="footer-links">
+          <a href="/support/">지원</a>
+          <a href="/privacy/">개인정보처리방침</a>
+          <a href="/terms/">이용약관</a>
+          <a href="/oauth/callback/">OAuth Callback</a>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      document.getElementById("year").textContent = new Date().getFullYear();
+    </script>
+  </body>
+</html>
+

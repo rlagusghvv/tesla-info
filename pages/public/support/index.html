@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Subdash 지원</title>
+    <meta name="theme-color" content="#f5f7ff" />
+    <style>
+      @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
+
+      :root {
+        --bg: #f5f7ff;
+        --bg-2: #f2f4f6;
+        --card: #ffffff;
+        --text: #191f28;
+        --muted: rgba(25, 31, 40, 0.62);
+        --border: rgba(23, 32, 46, 0.10);
+        --shadow: 0 12px 30px rgba(16, 24, 40, 0.10);
+        --primary: #2f6fff;
+        --radius: 22px;
+        --container: 960px;
+      }
+
+      body {
+        margin: 0;
+        font-family: Pretendard, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        color: var(--text);
+        background: radial-gradient(1200px 620px at 14% 8%, rgba(47, 111, 255, 0.14), rgba(47, 111, 255, 0) 55%),
+          linear-gradient(180deg, var(--bg), var(--bg-2));
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .container {
+        width: min(var(--container), calc(100% - 40px));
+        margin: 0 auto;
+        padding: 36px 0 56px;
+      }
+
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 950;
+        letter-spacing: -0.02em;
+        text-decoration: none;
+      }
+
+      .mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(47, 111, 255, 1), rgba(30, 87, 255, 1));
+        box-shadow: 0 10px 26px rgba(47, 111, 255, 0.26);
+      }
+
+      h1 {
+        margin: 18px 0 10px;
+        font-size: 32px;
+        font-weight: 950;
+        letter-spacing: -0.03em;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-weight: 650;
+        margin: 0 0 18px;
+        line-height: 1.6;
+      }
+
+      .card {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 18px;
+        margin-top: 12px;
+      }
+
+      h2 {
+        margin: 0 0 10px;
+        font-size: 16px;
+        font-weight: 950;
+      }
+
+      p,
+      li {
+        color: rgba(25, 31, 40, 0.80);
+        font-weight: 650;
+        line-height: 1.7;
+        font-size: 14px;
+      }
+
+      ul {
+        margin: 10px 0 0;
+        padding-left: 18px;
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        background: rgba(47, 111, 255, 0.10);
+        border: 1px solid rgba(47, 111, 255, 0.16);
+        padding: 2px 6px;
+        border-radius: 10px;
+      }
+
+      .links {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+      }
+
+      .links a {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.70);
+        border: 1px solid rgba(23, 32, 46, 0.08);
+        text-decoration: none;
+        font-weight: 900;
+        color: rgba(25, 31, 40, 0.74);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <div class="top">
+        <a class="brand" href="/">
+          <span class="mark" aria-hidden="true"></span>
+          <span>SUBDASH</span>
+        </a>
+        <div class="links">
+          <a href="/privacy/">개인정보처리방침</a>
+          <a href="/terms/">이용약관</a>
+        </div>
+      </div>
+
+      <h1>지원</h1>
+      <p class="meta">
+        문의: <b>support@splui.com</b><br />
+        설치/설정 중 문제가 있으면 아래 체크리스트부터 확인해주세요.
+      </p>
+
+      <section class="card">
+        <h2>1) 위치 권한(가장 중요)</h2>
+        <ul>
+          <li>iPhone 설정 → 개인정보 보호 및 보안 → 위치 서비스 → Subdash</li>
+          <li><b>항상</b> 허용</li>
+          <li><b>정확한 위치</b> 켜기</li>
+        </ul>
+        <p>이 설정이 아니면 속도/좌표 레이턴시가 커져서 알림 타이밍이 나빠질 수 있습니다.</p>
+      </section>
+
+      <section class="card">
+        <h2>2) Tesla route ON 확인</h2>
+        <ul>
+          <li>테슬라 차량에서 순정 내비로 목적지 설정</li>
+          <li>앱 Car Mode 화면에서 <code>Tesla route: ON</code> 표시 확인</li>
+        </ul>
+        <p>OFF면 Fleet 토큰 만료, 백엔드/터널 연결 이슈일 수 있습니다.</p>
+      </section>
+
+      <section class="card">
+        <h2>3) 카카오 경로 API 키</h2>
+        <ul>
+          <li>카카오 REST API 키가 있어야 목적지 좌표로 경로를 만들어 “다음 카메라”를 계산할 수 있습니다.</li>
+          <li>앱에서 <code>Kakao key 필요</code>가 뜨면 키가 비어있거나 저장이 안 된 상태입니다.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>4) 서버/데이터 체크</h2>
+        <ul>
+          <li>
+            데이터셋:
+            <a href="/api/data/speed_cameras_kr">/api/data/speed_cameras_kr</a>
+          </li>
+          <li>헬스체크: <a href="/health">/health</a></li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>5) 자주 묻는 질문</h2>
+        <ul>
+          <li>Q. 폰 화면을 켜야 하나요? A. 아니요. Car Mode 켜둔 채로 소리만 켜도 됩니다.</li>
+          <li>Q. 카플레이처럼 테슬라 화면에 띄워주나요? A. 아니요. 순정 내비를 메인으로 유지합니다.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>
+
