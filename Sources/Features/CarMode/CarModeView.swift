@@ -59,18 +59,30 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
         hasStartedUpdates = false
     }
 
-    var currentVehicleLocation: VehicleLocation? {
-        guard let location = latestLocation else { return nil }
-        let age = Date().timeIntervalSince(lastUpdatedAt)
-        guard age <= 12 else { return nil }
-        // Be slightly lenient so route sync can start even when GPS is not perfectly locked.
-        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 150 else { return nil }
-
+    private func makeVehicleLocation(from location: CLLocation) -> VehicleLocation? {
         let coordinate = location.coordinate
         guard (-90.0...90.0).contains(coordinate.latitude) else { return nil }
         guard (-180.0...180.0).contains(coordinate.longitude) else { return nil }
         guard abs(coordinate.latitude) > 0.000_01 || abs(coordinate.longitude) > 0.000_01 else { return nil }
         return VehicleLocation(lat: coordinate.latitude, lon: coordinate.longitude)
+    }
+
+    var currentVehicleLocation: VehicleLocation? {
+        guard let location = latestLocation else { return nil }
+        let age = Date().timeIntervalSince(lastUpdatedAt)
+        // Best-effort (route sync can start even if GPS is still settling).
+        guard age <= 60 else { return nil }
+        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 2_000 else { return nil }
+        return makeVehicleLocation(from: location)
+    }
+
+    var alertVehicleLocation: VehicleLocation? {
+        guard let location = latestLocation else { return nil }
+        let age = Date().timeIntervalSince(lastUpdatedAt)
+        // Stricter gate: alerts are only safe when GPS is fresh and accurate.
+        guard age <= 12 else { return nil }
+        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 90 else { return nil }
+        return makeVehicleLocation(from: location)
     }
 
     var currentSpeedKph: Double? {
@@ -171,7 +183,8 @@ struct CarModeView: View {
     }
 
     private var effectiveNaviLocation: VehicleLocation {
-        deviceLocationTracker.currentVehicleLocation ?? viewModel.snapshot.vehicle.location
+        // GPS-only: never fall back to Fleet/telemetry location.
+        deviceLocationTracker.currentVehicleLocation ?? VehicleLocation(lat: 0, lon: 0)
     }
 
     private var effectiveNaviSpeedKph: Double {
@@ -180,32 +193,56 @@ struct CarModeView: View {
     }
 
     private var effectiveLocationSourceLabel: String {
-        if deviceLocationTracker.currentVehicleLocation != nil {
-            return "아이폰 GPS"
-        }
-        return "차량 텔레메트리"
+        "아이폰 GPS"
     }
 
     private var effectiveLocationText: String {
+        guard CLLocationManager.locationServicesEnabled() else {
+            return "Location Services OFF"
+        }
+
+        switch deviceLocationTracker.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            break
+        case .notDetermined:
+            return "Requesting permission..."
+        case .denied, .restricted:
+            return "Permission denied"
+        @unknown default:
+            return "Permission unknown"
+        }
+
         if let gps = deviceLocationTracker.currentVehicleLocation, gps.isValid {
             return String(format: "%.5f, %.5f", gps.lat, gps.lon)
         }
-        let loc = viewModel.snapshot.vehicle.location
-        if loc.isValid {
-            return String(format: "%.5f, %.5f", loc.lat, loc.lon)
-        }
-        return "Unknown (enable Location)"
+        return "GPS fix pending..."
     }
 
     private var speedCameraStatusText: String? {
         guard viewModel.snapshot.navigation != nil else { return nil }
 
+        if !CLLocationManager.locationServicesEnabled() {
+            return "단속 카메라: iOS 위치 서비스 OFF"
+        }
+
+        if deviceLocationTracker.authorizationStatus == .denied || deviceLocationTracker.authorizationStatus == .restricted {
+            return "단속 카메라: 위치 권한 없음 (설정에서 허용 필요)"
+        }
+
         let key = kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if key.isEmpty {
             return "단속 카메라: Kakao REST 키 필요 (Account에서 설정)"
         }
-        if !effectiveNaviLocation.isValid {
-            return "단속 카메라: 위치 없음 (설정에서 위치 권한 허용 필요)"
+
+        guard let gps = deviceLocationTracker.currentVehicleLocation, gps.isValid else {
+            return "단속 카메라: GPS 수신 대기중 (실외에서 5-10초)"
+        }
+
+        if deviceLocationTracker.alertVehicleLocation == nil,
+           let accuracy = deviceLocationTracker.latestLocation?.horizontalAccuracy,
+           accuracy.isFinite,
+           accuracy > 0 {
+            return "단속 카메라: GPS 정확도 낮음 (±\(Int(accuracy))m) · 경보 대기"
         }
         if naviModel.route == nil {
             return "단속 카메라: 경로 동기화 중..."
@@ -308,12 +345,6 @@ struct CarModeView: View {
         }
         .onChange(of: deviceLocationTracker.lastUpdatedAt) { _, _ in
             guard useUltraLiteAssist else { return }
-            handleUltraLiteAssistTick()
-        }
-        .onChange(of: viewModel.snapshot.vehicle.location) { _, _ in
-            // If iPhone GPS is unavailable, fall back to telemetry updates to keep route sync alive.
-            guard useUltraLiteAssist else { return }
-            guard deviceLocationTracker.currentVehicleLocation == nil else { return }
             handleUltraLiteAssistTick()
         }
         .onChange(of: viewModel.snapshot.navigation) { _, _ in
@@ -571,7 +602,15 @@ struct CarModeView: View {
     }
 
     private func handleUltraLiteAssistTick() {
-        naviModel.updateVehicle(location: effectiveNaviLocation, speedKph: effectiveNaviSpeedKph)
+        // GPS-only: keep the last coordinate if GPS is temporarily unavailable.
+        if let current = deviceLocationTracker.currentVehicleLocation {
+            naviModel.updateVehicle(location: current, speedKph: effectiveNaviSpeedKph)
+        } else if let existing = naviModel.vehicleCoordinate {
+            naviModel.updateVehicle(
+                location: VehicleLocation(lat: existing.latitude, lon: existing.longitude),
+                speedKph: effectiveNaviSpeedKph
+            )
+        }
         updateSpeedCameraAlerts()
 
         Task {
@@ -599,6 +638,14 @@ struct CarModeView: View {
     private func updateSpeedCameraAlerts() {
         // Only speak alerts when we have an active route.
         guard viewModel.snapshot.navigation != nil else {
+            if speedCameraAlertEngine.latestAlertText != nil {
+                speedCameraAlertEngine.reset()
+            }
+            return
+        }
+
+        // GPS-only: do not emit camera alerts unless GPS is precise enough.
+        guard deviceLocationTracker.alertVehicleLocation != nil else {
             if speedCameraAlertEngine.latestAlertText != nil {
                 speedCameraAlertEngine.reset()
             }
@@ -644,9 +691,8 @@ struct CarModeView: View {
 
         let key = kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
-        let origin = naviModel.vehicleCoordinate
-            ?? deviceLocationTracker.currentVehicleLocation?.coordinate
-            ?? (viewModel.snapshot.vehicle.location.isValid ? viewModel.snapshot.vehicle.location.coordinate : nil)
+        // GPS-only: route sync requires a GPS fix.
+        let origin = deviceLocationTracker.currentVehicleLocation?.coordinate ?? naviModel.vehicleCoordinate
         guard let origin else { return }
 
         await naviModel.startRoute(restAPIKey: key, origin: origin, destination: destination.coordinate)
