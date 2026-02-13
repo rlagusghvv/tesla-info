@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env
+    volumes:
+      # Persist generated public datasets (e.g., speed cameras) on the host.
+      - ./backend/data:/app/data
     environment:
       # Ensure the backend binds inside the container.
       HOST: 0.0.0.0

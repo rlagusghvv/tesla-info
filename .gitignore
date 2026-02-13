@@ -70,3 +70,7 @@ tesla-subdash-starter/fastlane/test_output/
 
 # Local-only App Store Connect API env (do not commit)
 tesla-subdash-starter/fastlane/.env.asc
+
+# Generated public datasets (do not commit)
+backend/data/speed_cameras_kr.min.json
+backend/data/raw/
