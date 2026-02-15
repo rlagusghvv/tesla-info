@@ -1520,21 +1520,24 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
         // Free plan: show minimal text only (no voice/beep, no limit display).
         guard isPro else { return }
 
-        // Overspeed warning: within 500m and speed above limit.
+        // Overspeed warning: within 500m and speed above limit. Keep beeping until the driver slows down.
         if let limit = speedLimitKph, limit > 0, distanceMeters <= 500 {
             let roundedSpeed = Int(max(0, speedKph.rounded()))
-            if roundedSpeed >= limit + 3 {
+            if roundedSpeed >= limit + 1 {
                 latestAlertText = "과속! 제한 \(limit) · \(distanceMeters)m"
                 let now = Date()
-                if now.timeIntervalSince(lastOverspeedBeepAt) >= 2.2 {
+                if now.timeIntervalSince(lastOverspeedBeepAt) >= 1.2 {
                     lastOverspeedBeepAt = now
                     activateAudioSession()
                     playDoubleBeep()
-                    scheduleDeactivateAudioSession(after: 1.2)
+                    scheduleDeactivateAudioSession(after: 0.9)
                 }
                 if !didWarnOverspeedForCurrentGuide {
                     didWarnOverspeedForCurrentGuide = true
                 }
+            } else {
+                // Reset the beep timer once we are back under the limit.
+                lastOverspeedBeepAt = .distantPast
             }
         }
 

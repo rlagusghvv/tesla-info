@@ -471,28 +471,79 @@ final class KakaoNavigationViewModel: ObservableObject {
 
         if let vehicleProjection = currentVehicleProjection(point: vehicleCoordinate),
            vehicleProjection.distanceToRouteMeters <= 260 {
+            func sourcePrecedence(_ guide: KakaoGuide) -> Int {
+                if guide.id.hasPrefix("public:") { return 0 }
+                if guide.id.hasPrefix("poi:") { return 2 }
+                return 1
+            }
+
             var best: KakaoGuide?
             var bestDistance = Double.greatestFiniteMagnitude
             var bestRouteMeters = Double.greatestFiniteMagnitude
+            var bestPrecedence = Int.max
             let minAheadMeters = vehicleProjection.alongRouteMeters + 25
+            let precedenceToleranceMeters = 80.0
 
             for g in cameraGuides {
                 guard let routeMeters = routePositionMeters(for: g) else { continue }
                 guard routeMeters >= minAheadMeters else { continue }
 
-                if routeMeters < bestRouteMeters {
-                    bestRouteMeters = routeMeters
-                    bestDistance = distanceMeters(vehicleCoordinate, g.coordinate)
+                let d = distanceMeters(vehicleCoordinate, g.coordinate)
+                let p = sourcePrecedence(g)
+
+                guard let _ = best else {
                     best = g
+                    bestDistance = d
+                    bestRouteMeters = routeMeters
+                    bestPrecedence = p
                     continue
                 }
 
-                if routeMeters == bestRouteMeters {
-                    let d = distanceMeters(vehicleCoordinate, g.coordinate)
-                    if d < bestDistance {
-                        bestDistance = d
+                let delta = routeMeters - bestRouteMeters
+                let isClose = abs(delta) <= precedenceToleranceMeters
+
+                // Always prefer a clearly earlier camera along the route.
+                if delta < -20 {
+                    best = g
+                    bestDistance = d
+                    bestRouteMeters = routeMeters
+                    bestPrecedence = p
+                    continue
+                }
+
+                if isClose {
+                    // If two candidates are basically the same camera, prefer public dataset for speed-limit coverage.
+                    if p < bestPrecedence {
                         best = g
+                        bestDistance = d
+                        bestRouteMeters = routeMeters
+                        bestPrecedence = p
+                        continue
                     }
+                    if p == bestPrecedence {
+                        if routeMeters < bestRouteMeters {
+                            best = g
+                            bestDistance = d
+                            bestRouteMeters = routeMeters
+                            bestPrecedence = p
+                            continue
+                        }
+                        if routeMeters == bestRouteMeters, d < bestDistance {
+                            best = g
+                            bestDistance = d
+                            bestRouteMeters = routeMeters
+                            bestPrecedence = p
+                            continue
+                        }
+                    }
+                    continue
+                }
+
+                if routeMeters < bestRouteMeters {
+                    best = g
+                    bestDistance = d
+                    bestRouteMeters = routeMeters
+                    bestPrecedence = p
                 }
             }
 
@@ -673,9 +724,10 @@ final class KakaoNavigationViewModel: ObservableObject {
 
         var merged: [KakaoGuide] = []
         func precedence(of guide: KakaoGuide) -> Int {
+            // Prefer: public dataset > Kakao route-native guide > POI keyword search
+            if guide.id.hasPrefix("public:") { return 0 }
             if guide.id.hasPrefix("poi:") { return 2 }
-            if guide.id.hasPrefix("public:") { return 1 }
-            return 0 // Kakao route-native guide
+            return 1
         }
 
         for guide in incoming {
