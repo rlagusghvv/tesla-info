@@ -5,7 +5,6 @@ enum AppConfig {
     private static let backendOverrideKey = "backend_base_url_override"
     private static let telemetrySourceKey = "telemetry_source"
     private static let backendTokenKey = "backend.api.token"
-    private static let dataGoKrServiceKeyKey = "data_go_kr.service_key"
     private static let alertVolumeKey = "alerts.volume"
     private static let alertVoiceIdentifierKey = "alerts.voice_identifier"
 
@@ -49,27 +48,6 @@ enum AppConfig {
         }
         return trimmed
     }
-
-    static var dataGoKrServiceKey: String {
-        let stored = (KeychainStore.getString(dataGoKrServiceKeyKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !stored.isEmpty {
-            return stored
-        }
-
-        let bundled = (Bundle.main.object(forInfoDictionaryKey: "DataGoKrServiceKey") as? String ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return bundled
-    }
-
-    static func setDataGoKrServiceKey(_ key: String) throws {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            KeychainStore.delete(dataGoKrServiceKeyKey)
-            return
-        }
-        try KeychainStore.setString(trimmed, for: dataGoKrServiceKeyKey)
-    }
-
     static var alertVolume: Double {
         let raw = UserDefaults.standard.object(forKey: alertVolumeKey) as? Double
         let value = raw ?? 0.95
@@ -165,3 +143,99 @@ enum AppConfigError: LocalizedError {
         }
     }
 }
+
+enum AppLogLevel: String, Sendable, Codable {
+    case debug
+    case info
+    case warn
+    case error
+}
+
+enum AppLogCategory: String, Sendable, Codable {
+    case app
+    case fleet
+    case backend
+    case route
+    case cameras
+    case gps
+    case audio
+}
+
+struct AppLogEntry: Sendable, Codable {
+    let at: Date
+    let level: AppLogLevel
+    let category: AppLogCategory
+    let message: String
+}
+
+actor AppLogStore {
+    static let shared = AppLogStore()
+
+    private var entries: [AppLogEntry] = []
+    private let maxEntries = 500
+    private let iso = ISO8601DateFormatter()
+    private let persistURL: URL
+    private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
+
+    init() {
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        persistURL = base.appendingPathComponent("subdash_app_logs.json")
+
+        decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        // Best-effort restore from disk (helps debugging when the app freezes/crashes and is relaunched).
+        if let data = try? Data(contentsOf: persistURL),
+           let decoded = try? decoder.decode([AppLogEntry].self, from: data),
+           !decoded.isEmpty {
+            entries = Array(decoded.suffix(maxEntries))
+        }
+    }
+
+    func log(_ level: AppLogLevel = .info, _ category: AppLogCategory, _ message: String) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        entries.append(AppLogEntry(at: Date(), level: level, category: category, message: trimmed))
+        if entries.count > maxEntries {
+            entries.removeFirst(entries.count - maxEntries)
+        }
+    }
+
+    func clear() {
+        entries.removeAll(keepingCapacity: true)
+        try? FileManager.default.removeItem(at: persistURL)
+    }
+
+    func persist() {
+        do {
+            let data = try encoder.encode(entries)
+            try data.write(to: persistURL, options: [.atomic])
+        } catch {
+            // Non-fatal.
+        }
+    }
+
+    func dumpText(limit: Int = 400) -> String {
+        let cap = max(0, min(maxEntries, limit))
+        let slice = entries.suffix(cap)
+        return slice.map { e in
+            let ts = iso.string(from: e.at)
+            return "\(ts) [\(e.level.rawValue.uppercased())][\(e.category.rawValue)] \(e.message)"
+        }.joined(separator: "\n")
+    }
+}
+
+func appLog(_ category: AppLogCategory, _ message: String, level: AppLogLevel = .info) {
+    Task.detached(priority: .utility) {
+        await AppLogStore.shared.log(level, category, message)
+    }
+}
+

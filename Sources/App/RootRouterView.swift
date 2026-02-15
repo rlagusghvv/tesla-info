@@ -15,7 +15,7 @@ struct RootRouterView: View {
                 }
             }
             .frame(maxWidth: min(phoneCanvasMaxWidth, proxy.size.width))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .animation(.easeInOut(duration: 0.2), value: router.screen)
     }

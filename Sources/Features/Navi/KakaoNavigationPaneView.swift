@@ -1499,6 +1499,7 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
 
     func playDebugTest() {
         activateAudioSession()
+        appLog(.audio, "audio test: beep+voice", level: .info)
         playDoubleBeep()
 
         let utterance = makeUtterance("서브대시 음성 테스트입니다.")
@@ -1507,12 +1508,14 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
 
     func playDebugBeepOnly() {
         activateAudioSession()
+        appLog(.audio, "audio test: beep only", level: .info)
         playDoubleBeep()
         scheduleDeactivateAudioSession(after: 0.9)
     }
 
     func playDebugVoiceOnly() {
         activateAudioSession()
+        appLog(.audio, "audio test: voice only", level: .info)
         let utterance = makeUtterance("서브대시 음성 테스트입니다.")
         synthesizer.speak(utterance)
     }
@@ -1560,6 +1563,7 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
                 }
                 if !didWarnOverspeedForCurrentGuide {
                     didWarnOverspeedForCurrentGuide = true
+                    appLog(.audio, "overspeed warning: speed=\(roundedSpeed) limit=\(limit) dist=\(distanceMeters)m", level: .warn)
                 }
             } else {
                 // Reset the beep timer once we are back under the limit.
@@ -1615,6 +1619,7 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
             try session.setCategory(.playback, mode: .voicePrompt, options: [.duckOthers, .mixWithOthers])
             didConfigureAudioSession = true
         } catch {
+            appLog(.audio, "audio session category set failed: \(error.localizedDescription)", level: .warn)
             // Non-fatal: speech can still work with the default session.
         }
     }
@@ -1624,6 +1629,7 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
         do {
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
+            appLog(.audio, "audio session activate failed: \(error.localizedDescription)", level: .warn)
             // Non-fatal
         }
     }
@@ -1659,6 +1665,7 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
             do {
                 try engine.start()
             } catch {
+                appLog(.audio, "beep engine start failed: \(error.localizedDescription)", level: .warn)
                 return nil
             }
 

@@ -1143,10 +1143,8 @@ actor PublicSpeedCameraStore {
     }
 
     func refreshFromPreferredSourceIfNeeded(force: Bool) async throws -> Bool {
-        let key = AppConfig.dataGoKrServiceKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !key.isEmpty {
-            return try await refreshFromDataGoKrIfNeeded(force: force, serviceKey: key)
-        }
+        // App no longer hits data.go.kr directly. Backend serves a cached dataset so we
+        // do not expose service keys and we reduce device/network churn.
         return try await refreshFromBackendIfNeeded(force: force)
     }
 

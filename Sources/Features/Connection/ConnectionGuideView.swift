@@ -17,14 +17,14 @@ struct ConnectionGuideView: View {
     @State private var showManualLogin = false
     @State private var showKakaoKey = false
     @State private var showKakaoJSKey = false
-    @State private var showDataGoKrKey = false
     @State private var showAdvancedTesla = false
     @State private var showTeslaDiagnostics = false
     @State private var showPaywall = false
     @State private var selectedTelemetrySource: TelemetrySource = AppConfig.telemetrySource
     @State private var backendURLText: String = AppConfig.backendBaseURLString
     @State private var backendAPITokenText: String = AppConfig.backendAPIToken
-    @State private var dataGoKrServiceKeyText: String = AppConfig.dataGoKrServiceKey
+    @State private var isRefreshingSpeedCameraDataset = false
+    @State private var speedCameraDatasetStatusText: String?
     @State private var showBackendToken = false
     @State private var isTestingBackend = false
     @State private var isDetectingBackend = false
@@ -94,7 +94,7 @@ struct ConnectionGuideView: View {
                     telemetrySourcePanel
                     teslaConfigPanel
                     kakaoConfigPanel
-                    speedCameraDataPanel
+                    speedCameraDatasetPanel
 
                     Button {
                         let source = AppConfig.telemetrySource
@@ -150,6 +150,8 @@ struct ConnectionGuideView: View {
             if AppConfig.iapEnabled {
                 Task { await subscription.refresh(force: false) }
             }
+
+            Task { await refreshSpeedCameraDatasetStatus(force: false) }
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
@@ -741,49 +743,39 @@ struct ConnectionGuideView: View {
         )
     }
 
-    private var speedCameraDataPanel: some View {
+    private var speedCameraDatasetPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Speed Cameras (data.go.kr)")
+            Text("Speed Cameras")
                 .font(.system(size: 24, weight: .bold, design: .rounded))
 
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(dataGoKrServiceKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.orange : Color.green)
-                    .frame(width: 10, height: 10)
-                Text(dataGoKrServiceKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Service Key Optional (backend fallback)" : "Service Key Set")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+            Text("Dataset is served from backend (no keys stored on device).")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+
+            Text("Endpoint: \(AppConfig.backendBaseURL.appendingPathComponent("api/data/speed_cameras_kr").absoluteString)")
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+
+            if let speedCameraDatasetStatusText {
+                Text(speedCameraDatasetStatusText)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 10) {
-                Group {
-                    if showDataGoKrKey {
-                        TextField("data.go.kr Service Key", text: $dataGoKrServiceKeyText)
-                    } else {
-                        SecureField("data.go.kr Service Key", text: $dataGoKrServiceKeyText)
-                    }
+                Button(isRefreshingSpeedCameraDataset ? "Refreshing..." : "Refresh Dataset") {
+                    Task { await refreshSpeedCameraDatasetStatus(force: true) }
                 }
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .disabled(isRefreshingSpeedCameraDataset)
+                .buttonStyle(SecondaryCarButtonStyle())
 
-                Button(showDataGoKrKey ? "Hide" : "Show") {
-                    showDataGoKrKey.toggle()
+                Button("Copy Report") {
+                    Task { await copySpeedCameraDiagnosticsToClipboard() }
                 }
-                .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
-                .frame(width: 90)
+                .buttonStyle(SecondaryCarButtonStyle())
             }
-
-            Button("Save") {
-                saveDataGoKrServiceKey()
-            }
-            .buttonStyle(SecondaryCarButtonStyle())
-            .frame(height: 70)
-
-            Text("If set, the app downloads the speed-camera dataset directly from data.go.kr (no backend). Key is stored in Keychain.")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
+            .frame(minHeight: 70)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -792,7 +784,6 @@ struct ConnectionGuideView: View {
                 .fill(Color(.secondarySystemBackground))
         )
     }
-
 
     private func syncTeslaDraftFromStore() {
         teslaClientIdText = teslaAuth.clientId
@@ -823,17 +814,6 @@ struct ConnectionGuideView: View {
             AppConfig.setTelemetrySource(.backend)
             backendURLText = AppConfig.backendBaseURLString
             teslaAuth.statusMessage = "Saved backend URL. Telemetry Source switched to Backend."
-        } catch {
-            teslaAuth.statusMessage = error.localizedDescription
-        }
-    }
-
-    private func saveDataGoKrServiceKey() {
-        do {
-            try AppConfig.setDataGoKrServiceKey(dataGoKrServiceKeyText)
-            dataGoKrServiceKeyText = AppConfig.dataGoKrServiceKey
-            let set = !dataGoKrServiceKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            teslaAuth.statusMessage = set ? "Saved data.go.kr service key." : "Cleared data.go.kr service key."
         } catch {
             teslaAuth.statusMessage = error.localizedDescription
         }
@@ -875,6 +855,63 @@ struct ConnectionGuideView: View {
             } catch {
                 teslaAuth.statusMessage = error.localizedDescription
             }
+        }
+    }
+
+
+    private func refreshSpeedCameraDatasetStatus(force: Bool) async {
+        if isRefreshingSpeedCameraDataset { return }
+        await MainActor.run { isRefreshingSpeedCameraDataset = true }
+        defer { Task { @MainActor in isRefreshingSpeedCameraDataset = false } }
+
+        do {
+            let currentCount = await PublicSpeedCameraStore.shared.cameraCount()
+            if force || currentCount == 0 {
+                appLog(.cameras, "Refreshing speed camera dataset from backend...", level: .info)
+                _ = try await PublicSpeedCameraStore.shared.refreshFromBackendIfNeeded(force: true)
+            }
+
+            let count = await PublicSpeedCameraStore.shared.cameraCount()
+            let status = "Cached cameras: \(count)"
+            await MainActor.run {
+                speedCameraDatasetStatusText = status
+            }
+            teslaAuth.statusMessage = "Speed camera dataset OK (\(count))"
+            appLog(.cameras, status, level: .info)
+        } catch {
+            let msg = "Speed camera dataset refresh failed: \(error.localizedDescription)"
+            await MainActor.run {
+                speedCameraDatasetStatusText = msg
+            }
+            teslaAuth.statusMessage = msg
+            appLog(.cameras, msg, level: .error)
+        }
+    }
+
+    private func copySpeedCameraDiagnosticsToClipboard() async {
+        let count = await PublicSpeedCameraStore.shared.cameraCount()
+        let endpoint = AppConfig.backendBaseURL.appendingPathComponent("api/data/speed_cameras_kr").absoluteString
+        let log = await AppLogStore.shared.dumpText(limit: 220)
+
+        let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "?"
+        let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "?"
+
+        let report = """
+Subdash Diagnostics
+- version: \(version) (\(build))
+- telemetry: \(AppConfig.telemetrySource.rawValue)
+- backend: \(AppConfig.backendBaseURLString)
+- speed_cameras_endpoint: \(endpoint)
+- speed_cameras_cached: \(count)
+- network: \(networkMonitor.isConnected ? "connected" : "disconnected") \(networkMonitor.connectionTypeText)
+
+Recent logs:
+\(log)
+"""
+
+        await MainActor.run {
+            UIPasteboard.general.string = report
+            speedCameraDatasetStatusText = "Copied diagnostics to clipboard."
         }
     }
 

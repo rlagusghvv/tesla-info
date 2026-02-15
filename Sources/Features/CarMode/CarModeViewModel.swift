@@ -39,6 +39,7 @@ final class CarModeViewModel: ObservableObject {
     }
 
     func start() {
+        appLog(.fleet, "polling start")
         startFullPollingIfNeeded()
         startNavPollingIfNeeded()
     }
@@ -85,6 +86,7 @@ final class CarModeViewModel: ObservableObject {
     }
 
     func stop() {
+        appLog(.fleet, "polling stop")
         pollTask?.cancel()
         pollTask = nil
         navPollTask?.cancel()
@@ -109,8 +111,12 @@ final class CarModeViewModel: ObservableObject {
             isLoading = false
             errorMessage = nil
             lastErrorFingerprint = ""
+            let previousFailures = consecutiveFailures
             consecutiveFailures = 0
             lastSuccessfulUpdateAt = Date()
+            if previousFailures > 0 {
+                appLog(.fleet, "refresh recovered after \(previousFailures) failures", level: .info)
+            }
 
             // When a route is active we run an additional lightweight drive_state poll for nav updates,
             // so keep the heavy snapshot polling slower to reduce rate-limit risk.
@@ -128,6 +134,7 @@ final class CarModeViewModel: ObservableObject {
             isLoading = false
             consecutiveFailures += 1
             let message = compactErrorMessage(error.localizedDescription)
+            appLog(.fleet, "refresh failed (#\(consecutiveFailures)): \(message)", level: .warn)
             if message != lastErrorFingerprint {
                 errorMessage = message
                 lastErrorFingerprint = message
@@ -162,6 +169,7 @@ final class CarModeViewModel: ObservableObject {
             navPollIntervalSeconds = 4
 
             if nav != snapshot.navigation {
+                appLog(.route, "nav changed", level: .info)
                 snapshot = VehicleSnapshot(
                     source: snapshot.source,
                     mode: snapshot.mode,
@@ -177,6 +185,9 @@ final class CarModeViewModel: ObservableObject {
             }
 
             navConsecutiveFailures += 1
+            if navConsecutiveFailures == 1 {
+                appLog(.route, "nav poll error: \(compactErrorMessage(error.localizedDescription))", level: .warn)
+            }
 
             if let fleetError = error as? TeslaFleetError {
                 switch fleetError {
@@ -204,6 +215,7 @@ final class CarModeViewModel: ObservableObject {
 
         isCommandRunning = true
         commandMessage = nil
+        appLog(.fleet, "command: \(command)", level: .info)
 
         Task {
             defer { isCommandRunning = false }
@@ -217,6 +229,7 @@ final class CarModeViewModel: ObservableObject {
                 }
                 applyOptimisticControlState(for: command, response: response)
                 commandMessage = response.message
+                appLog(.fleet, "command ok=\(response.ok) msg=\(compactErrorMessage(response.message))", level: response.ok ? .info : .warn)
                 if !response.ok {
                     errorMessage = compactErrorMessage(response.message)
                 }
@@ -237,6 +250,7 @@ final class CarModeViewModel: ObservableObject {
 
         isCommandRunning = true
         commandMessage = nil
+        appLog(.route, "nav destination push: \(name) (\(coordinate.latitude), \(coordinate.longitude))", level: .info)
         defer { isCommandRunning = false }
 
         do {
@@ -258,6 +272,7 @@ final class CarModeViewModel: ObservableObject {
                 snapshot = latest
             }
             commandMessage = response.message
+            appLog(.route, "nav destination response ok=\(response.ok) msg=\(compactErrorMessage(response.message))", level: response.ok ? .info : .warn)
             if !response.ok {
                 errorMessage = compactErrorMessage(response.message)
             }
@@ -267,6 +282,7 @@ final class CarModeViewModel: ObservableObject {
                 return (false, "Command cancelled.")
             }
             let message = compactErrorMessage(error.localizedDescription)
+            appLog(.route, "nav destination error: \(message)", level: .warn)
             errorMessage = message
             commandMessage = nil
             return (false, message)

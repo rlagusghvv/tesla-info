@@ -181,6 +181,11 @@ struct CarModeView: View {
     @State private var showChromeInNavi: Bool = false
     @State private var showAccountSheet: Bool = false
 
+    @State private var showDiagnosticsSheet: Bool = false
+    @State private var diagnosticsStatusText: String?
+    @State private var diagnosticsLogDump: String = ""
+    @State private var diagnosticsCameraCount: Int = 0
+
     @StateObject private var mediaWebViewStore = WebViewStore()
     @State private var mediaOverlaySize: CGSize = .zero
     @State private var mediaOverlayOrigin: CGPoint = .zero
@@ -360,7 +365,11 @@ struct CarModeView: View {
                 .environmentObject(teslaAuth)
                 .environmentObject(kakaoConfig)
         }
+        .sheet(isPresented: $showDiagnosticsSheet) {
+            diagnosticsSheet
+        }
         .onAppear {
+            appLog(.app, "CarMode appear", level: .info)
             viewModel.start()
             deviceLocationTracker.start()
             // Drive the assist loop from CLLocation updates (works even when SwiftUI is not actively redrawing).
@@ -368,6 +377,8 @@ struct CarModeView: View {
             Task { await PublicSpeedCameraStore.shared.prewarm() }
         }
         .onDisappear {
+            appLog(.app, "CarMode disappear", level: .info)
+            Task { await AppLogStore.shared.persist() }
             viewModel.stop()
             deviceLocationTracker.stop()
             deviceLocationTracker.onTick = nil
@@ -375,9 +386,12 @@ struct CarModeView: View {
         .onChange(of: scenePhase) { _, next in
             switch next {
             case .active:
+                appLog(.app, "scenePhase active", level: .info)
                 viewModel.start()
                 deviceLocationTracker.start()
             case .inactive, .background:
+                appLog(.app, "scenePhase background", level: .info)
+                Task { await AppLogStore.shared.persist() }
                 viewModel.stop()
             @unknown default:
                 break
@@ -798,6 +812,11 @@ struct CarModeView: View {
                     Task { await viewModel.refresh() }
                 }
                 .disabled(!networkMonitor.isConnected)
+
+                headerIconButton(systemImage: "waveform.path.ecg") {
+                    showDiagnosticsSheet = true
+                    refreshDiagnosticsSnapshot()
+                }
 
                 headerIconButton(systemImage: "person.crop.circle") {
                     showAccountSheet = true
@@ -1433,6 +1452,233 @@ struct CarModeView: View {
         case .compact:
             return PrimaryCarButtonStyle(fontSize: 17, height: 54, cornerRadius: 14)
         }
+    }
+
+
+    private var diagnosticsSheet: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    card {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Quick Status")
+                                .font(.system(size: 18, weight: .heavy, design: .rounded))
+                                .foregroundStyle(Color.black.opacity(0.88))
+
+                            if let diagnosticsStatusText {
+                                Text(diagnosticsStatusText)
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color.blue)
+                            }
+
+                            Group {
+                                metricRow(title: "App", value: appVersionText)
+                                metricRow(title: "Network", value: networkMonitor.isConnected ? "Connected" : "Disconnected")
+                                metricRow(title: "Telemetry", value: AppConfig.telemetrySource.rawValue)
+                                metricRow(title: "Backend", value: AppConfig.backendBaseURLString)
+                                metricRow(title: "Speed Cameras", value: "cached \(diagnosticsCameraCount)")
+                                metricRow(title: "Tesla route", value: viewModel.snapshot.navigation == nil ? "OFF" : "ON")
+                                metricRow(title: "Kakao route", value: naviModel.route == nil ? "Not synced" : "Synced")
+                                metricRow(title: "Location", value: effectiveLocationText)
+                            }
+                        }
+                    }
+
+                    card {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Actions")
+                                .font(.system(size: 18, weight: .heavy, design: .rounded))
+                                .foregroundStyle(Color.black.opacity(0.88))
+
+                            HStack(spacing: 10) {
+                                Button("Copy Report") {
+                                    copyDiagnosticsToClipboard()
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 15, height: 54, cornerRadius: 14))
+
+                                Button("Refresh") {
+                                    refreshDiagnosticsSnapshot()
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 15, height: 54, cornerRadius: 14))
+                            }
+
+                            HStack(spacing: 10) {
+                                Button("Restart Polling") {
+                                    restartPolling()
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 15, height: 54, cornerRadius: 14))
+
+                                Button("Restart GPS") {
+                                    restartGPS()
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 15, height: 54, cornerRadius: 14))
+                            }
+
+                            HStack(spacing: 10) {
+                                Button("Refresh Cameras") {
+                                    refreshSpeedCameraDataset()
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 15, height: 54, cornerRadius: 14))
+
+                                Button("Clear Logs") {
+                                    clearDiagnosticsLogs()
+                                }
+                                .buttonStyle(SecondaryCarButtonStyle(fontSize: 15, height: 54, cornerRadius: 14))
+                            }
+                        }
+                    }
+
+                    card {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("Logs")
+                                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(Color.black.opacity(0.88))
+                                Spacer()
+                                Button("Refresh") {
+                                    refreshDiagnosticsSnapshot()
+                                }
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                            }
+
+                            Text(diagnosticsLogDump.isEmpty ? "(No logs yet)" : diagnosticsLogDump)
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(Color.black.opacity(0.72))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("Diagnostics")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") {
+                        showDiagnosticsSheet = false
+                    }
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                }
+            }
+            .onAppear {
+                refreshDiagnosticsSnapshot()
+            }
+        }
+    }
+
+    private var appVersionText: String {
+        let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "?"
+        let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "?"
+        return "\(version) (\(build))"
+    }
+
+    private func refreshDiagnosticsSnapshot() {
+        Task { @MainActor in
+            diagnosticsCameraCount = await PublicSpeedCameraStore.shared.cameraCount()
+            diagnosticsLogDump = await AppLogStore.shared.dumpText(limit: 500)
+        }
+    }
+
+    private func copyDiagnosticsToClipboard() {
+        Task { @MainActor in
+            let report = await buildDiagnosticsReport(logLimit: 220)
+            UIPasteboard.general.string = report
+            diagnosticsStatusText = "Copied diagnostics to clipboard."
+            await AppLogStore.shared.persist()
+        }
+    }
+
+    private func clearDiagnosticsLogs() {
+        Task { @MainActor in
+            await AppLogStore.shared.clear()
+            diagnosticsLogDump = ""
+            diagnosticsStatusText = "Logs cleared."
+        }
+    }
+
+    private func restartPolling() {
+        appLog(.app, "diagnostics: restart polling", level: .info)
+        viewModel.stop()
+        viewModel.start()
+        Task { await viewModel.refresh() }
+        diagnosticsStatusText = "Polling restarted."
+    }
+
+    private func restartGPS() {
+        appLog(.gps, "diagnostics: restart gps", level: .info)
+        deviceLocationTracker.stop()
+        deviceLocationTracker.start()
+        diagnosticsStatusText = "GPS restarted."
+    }
+
+    private func refreshSpeedCameraDataset() {
+        Task { @MainActor in
+            diagnosticsStatusText = "Refreshing speed camera dataset..."
+            do {
+                _ = try await PublicSpeedCameraStore.shared.refreshFromBackendIfNeeded(force: true)
+                diagnosticsCameraCount = await PublicSpeedCameraStore.shared.cameraCount()
+                diagnosticsStatusText = "Speed camera dataset refreshed (\(diagnosticsCameraCount))."
+                appLog(.cameras, "dataset refreshed: cached=\(diagnosticsCameraCount)", level: .info)
+            } catch {
+                let msg = "Speed camera dataset refresh failed: \(error.localizedDescription)"
+                diagnosticsStatusText = msg
+                appLog(.cameras, msg, level: .error)
+            }
+            diagnosticsLogDump = await AppLogStore.shared.dumpText(limit: 500)
+        }
+    }
+
+    private func buildDiagnosticsReport(logLimit: Int) async -> String {
+        let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "?"
+        let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "?"
+
+        let now = ISO8601DateFormatter().string(from: Date())
+
+        let kakaoRestKeySet = !kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let kakaoJSKeySet = !kakaoConfig.javaScriptKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        let backendTokenSet = !(AppConfig.backendAPIToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+        let gpsStatus: String = {
+            guard CLLocationManager.locationServicesEnabled() else { return "Location Services OFF" }
+            switch deviceLocationTracker.authorizationStatus {
+            case .authorizedAlways, .authorizedWhenInUse:
+                break
+            case .notDetermined:
+                return "Permission not determined"
+            case .denied, .restricted:
+                return "Permission denied"
+            @unknown default:
+                return "Permission unknown"
+            }
+
+            guard let loc = deviceLocationTracker.latestLocation else { return "GPS: none" }
+            let age = Int(Date().timeIntervalSince(deviceLocationTracker.lastUpdatedAt))
+            return String(format: "GPS: %.5f, %.5f (±%dm, age %ds)", loc.coordinate.latitude, loc.coordinate.longitude, Int(loc.horizontalAccuracy), age)
+        }()
+
+        let camerasCached = await PublicSpeedCameraStore.shared.cameraCount()
+        let logs = await AppLogStore.shared.dumpText(limit: logLimit)
+
+        return """
+Subdash Diagnostics
+- at: \(now)
+- app: \(version) (\(build))
+- network: \(networkMonitor.isConnected ? "connected" : "disconnected") \(networkMonitor.connectionTypeText)
+- telemetry: \(AppConfig.telemetrySource.rawValue)
+- backend: \(AppConfig.backendBaseURLString)
+- backend_token_set: \(backendTokenSet ? "yes" : "no")
+- tesla_signed_in: \(teslaAuth.isSignedIn ? "yes" : "no")
+- tesla_route: \(viewModel.snapshot.navigation == nil ? "off" : "on")
+- kakao_rest_key_set: \(kakaoRestKeySet ? "yes" : "no")
+- kakao_js_key_set: \(kakaoJSKeySet ? "yes" : "no")
+- speed_cameras_cached: \(camerasCached)
+- gps: \(gpsStatus)
+
+Recent logs:
+\(logs)
+"""
     }
 
     private func metricRow(title: String, value: String) -> some View {
