@@ -1473,6 +1473,22 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
         synthesizer.delegate = self
     }
 
+    private func selectedVoice() -> AVSpeechSynthesisVoice? {
+        if let id = AppConfig.alertVoiceIdentifier,
+           let voice = AVSpeechSynthesisVoice(identifier: id) {
+            return voice
+        }
+        return AVSpeechSynthesisVoice(language: "ko-KR")
+    }
+
+    private func makeUtterance(_ text: String) -> AVSpeechUtterance {
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = selectedVoice()
+        utterance.rate = 0.46
+        utterance.volume = Float(AppConfig.alertVolume)
+        return utterance
+    }
+
     func reset() {
         currentGuideID = nil
         firedThresholds.removeAll()
@@ -1485,12 +1501,22 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
         activateAudioSession()
         playDoubleBeep()
 
-        let utterance = AVSpeechUtterance(string: "서브대시 음성 테스트입니다.")
-        utterance.voice = AVSpeechSynthesisVoice(language: "ko-KR")
-        utterance.rate = 0.46
-        utterance.volume = 0.95
+        let utterance = makeUtterance("서브대시 음성 테스트입니다.")
         synthesizer.speak(utterance)
     }
+
+    func playDebugBeepOnly() {
+        activateAudioSession()
+        playDoubleBeep()
+        scheduleDeactivateAudioSession(after: 0.9)
+    }
+
+    func playDebugVoiceOnly() {
+        activateAudioSession()
+        let utterance = makeUtterance("서브대시 음성 테스트입니다.")
+        synthesizer.speak(utterance)
+    }
+
 
     func update(nextGuide: KakaoGuide?, distanceMeters: Int?, speedKph: Double, speedLimitKph: Int?, isPro: Bool) {
         guard let nextGuide, let distanceMeters, distanceMeters >= 0 else {
@@ -1561,10 +1587,7 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
             text += ". 감속하세요"
         }
 
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "ko-KR")
-        utterance.rate = 0.46
-        utterance.volume = 0.95
+        let utterance = makeUtterance(text)
         synthesizer.speak(utterance)
     }
 
@@ -1620,45 +1643,64 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
     private func playDoubleBeep() {
         activateAudioSession()
 
-        let engine: AVAudioEngine
-        let player: AVAudioPlayerNode
-        let format: AVAudioFormat
+        func buildEngine() -> (engine: AVAudioEngine, player: AVAudioPlayerNode, format: AVAudioFormat)? {
+            let engine = AVAudioEngine()
+            let player = AVAudioPlayerNode()
+            let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
 
-        if let beepEngine, let beepPlayer, let beepFormat {
-            engine = beepEngine
-            player = beepPlayer
-            format = beepFormat
-        } else {
-            let createdEngine = AVAudioEngine()
-            let createdPlayer = AVAudioPlayerNode()
-            let createdFormat = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: format)
 
-            createdEngine.attach(createdPlayer)
-            createdEngine.connect(createdPlayer, to: createdEngine.mainMixerNode, format: createdFormat)
             do {
-                try createdEngine.start()
+                try engine.start()
             } catch {
-                return
+                return nil
             }
-            createdPlayer.play()
 
-            beepEngine = createdEngine
-            beepPlayer = createdPlayer
-            beepFormat = createdFormat
-
-            engine = createdEngine
-            player = createdPlayer
-            format = createdFormat
+            player.play()
+            return (engine: engine, player: player, format: format)
         }
 
-        guard engine.isRunning else { return }
+        if beepEngine == nil || beepPlayer == nil || beepFormat == nil {
+            guard let built = buildEngine() else { return }
+            beepEngine = built.engine
+            beepPlayer = built.player
+            beepFormat = built.format
+        }
+
+        guard var engine = beepEngine,
+              var player = beepPlayer,
+              var format = beepFormat else { return }
+
+        if !engine.isRunning {
+            do {
+                try engine.start()
+            } catch {
+                // If the engine got into a bad state (common after audio-session deactivation), rebuild once.
+                beepEngine = nil
+                beepPlayer = nil
+                beepFormat = nil
+
+                guard let built = buildEngine() else { return }
+                beepEngine = built.engine
+                beepPlayer = built.player
+                beepFormat = built.format
+                engine = built.engine
+                player = built.player
+                format = built.format
+            }
+        }
+
         if !player.isPlaying {
             player.play()
         }
 
+        player.volume = Float(AppConfig.alertVolume)
+
         let buffer = makeDoubleBeepBuffer(format: format)
         player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
     }
+
 
     private func makeDoubleBeepBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer {
         let sampleRate = format.sampleRate

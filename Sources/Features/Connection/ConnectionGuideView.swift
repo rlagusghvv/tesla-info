@@ -1,3 +1,4 @@
+import AVFoundation
 import StoreKit
 import SwiftUI
 import UIKit
@@ -35,6 +36,10 @@ struct ConnectionGuideView: View {
     @State private var teslaManualCodeText: String = ""
     @State private var teslaManualStateText: String = ""
     @StateObject private var audioTestEngine = SpeedCameraAlertEngine()
+    @State private var alertVolume: Double = AppConfig.alertVolume
+    @State private var alertVoiceIdentifier: String = AppConfig.alertVoiceIdentifier ?? ""
+    @State private var availableAlertVoices: [AVSpeechSynthesisVoice] = []
+    @State private var audioStatusText: String?
 
     private let quickBackendCandidates: [String] = [
         "https://tesla.splui.com",
@@ -132,6 +137,15 @@ struct ConnectionGuideView: View {
             backendURLText = AppConfig.backendBaseURLString
             backendAPITokenText = AppConfig.backendAPIToken
             syncTeslaDraftFromStore()
+
+            alertVolume = AppConfig.alertVolume
+            alertVoiceIdentifier = AppConfig.alertVoiceIdentifier ?? ""
+            availableAlertVoices = AVSpeechSynthesisVoice.speechVoices()
+                .filter { $0.language.hasPrefix("ko") }
+                .sorted { a, b in
+                    if a.quality != b.quality { return a.quality.rawValue > b.quality.rawValue }
+                    return a.name < b.name
+                }
             if AppConfig.iapEnabled {
                 Task { await subscription.refresh(force: false) }
             }
@@ -163,19 +177,145 @@ struct ConnectionGuideView: View {
         )
     }
 
+    private var audioOutputRouteText: String {
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+        if outputs.isEmpty { return "Unknown" }
+        return outputs.map { $0.portName }.joined(separator: ", ")
+    }
+
+    private var selectedAlertVoiceLabel: String {
+        let trimmed = alertVoiceIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "Default (ko-KR)" }
+        if let voice = availableAlertVoices.first(where: { $0.identifier == trimmed }) {
+            return voiceMenuTitle(voice)
+        }
+        return "Custom"
+    }
+
+    private func voiceMenuTitle(_ voice: AVSpeechSynthesisVoice) -> String {
+        let quality = voice.quality == .enhanced ? "Enhanced" : "Default"
+        return "\(voice.name) (\(quality))"
+    }
+
     private var audioTestPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Audio Test")
                 .font(.system(size: 24, weight: .bold, design: .rounded))
 
-            Text("If you can't hear alerts while driving, test audio output first.")
+            Text("If you cannot hear alerts while driving, test audio output first.")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Text("Alert Volume")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Text("\(Int((alertVolume * 100).rounded()))%")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        alertVolume = max(0, alertVolume - 0.1)
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 44, cornerRadius: 14))
+                    .frame(width: 52)
+
+                    Slider(value: $alertVolume, in: 0...1, step: 0.05)
+                        .tint(.blue)
+
+                    Button {
+                        alertVolume = min(1, alertVolume + 0.1)
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                    }
+                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 44, cornerRadius: 14))
+                    .frame(width: 52)
+                }
+
+                HStack(spacing: 8) {
+                    ForEach([0.25, 0.5, 0.75, 1.0], id: \.self) { v in
+                        Button("\(Int(v * 100))%") {
+                            alertVolume = v
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle(fontSize: 14, height: 40, cornerRadius: 12))
+                    }
+                }
+            }
+            .onChange(of: alertVolume) { _, next in
+                AppConfig.setAlertVolume(next)
+                audioStatusText = "Saved volume: \(Int((AppConfig.alertVolume * 100).rounded()))%"
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Voice")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+
+                Menu {
+                    Button("Default (ko-KR)") {
+                        alertVoiceIdentifier = ""
+                        AppConfig.setAlertVoiceIdentifier(nil)
+                        audioStatusText = "Voice: Default"
+                    }
+
+                    if !availableAlertVoices.isEmpty {
+                        ForEach(availableAlertVoices, id: \.identifier) { voice in
+                            Button(voiceMenuTitle(voice)) {
+                                alertVoiceIdentifier = voice.identifier
+                                AppConfig.setAlertVoiceIdentifier(voice.identifier)
+                                audioStatusText = "Voice: \(voiceMenuTitle(voice))"
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Text(selectedAlertVoiceLabel)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 56, cornerRadius: 16))
+            }
 
             Button("Test Sound (voice + beep)") {
                 audioTestEngine.playDebugTest()
             }
             .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+
+            HStack(spacing: 10) {
+                Button("Beep Only") {
+                    audioTestEngine.playDebugBeepOnly()
+                }
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 44, cornerRadius: 14))
+
+                Button("Voice Only") {
+                    audioTestEngine.playDebugVoiceOnly()
+                }
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 44, cornerRadius: 14))
+            }
+
+            Text("Output: \(audioOutputRouteText)")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+
+            if let audioStatusText {
+                Text(audioStatusText)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
 
             Text("Tip: iPhone silent switch + volume + Bluetooth output can affect what you hear.")
                 .font(.system(size: 12, weight: .semibold, design: .rounded))

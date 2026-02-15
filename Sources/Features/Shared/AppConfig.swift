@@ -6,6 +6,8 @@ enum AppConfig {
     private static let telemetrySourceKey = "telemetry_source"
     private static let backendTokenKey = "backend.api.token"
     private static let dataGoKrServiceKeyKey = "data_go_kr.service_key"
+    private static let alertVolumeKey = "alerts.volume"
+    private static let alertVoiceIdentifierKey = "alerts.voice_identifier"
 
     // MVP: keep IAP code in place, but do not gate features until explicitly enabled.
     // Flip this by adding `SubdashIAPEnabled = YES` to Info.plist (or by wiring a remote flag later).
@@ -66,6 +68,35 @@ enum AppConfig {
             return
         }
         try KeychainStore.setString(trimmed, for: dataGoKrServiceKeyKey)
+    }
+
+    static var alertVolume: Double {
+        let raw = UserDefaults.standard.object(forKey: alertVolumeKey) as? Double
+        let value = raw ?? 0.95
+        if !value.isFinite { return 0.95 }
+        return min(1.0, max(0.0, value))
+    }
+
+    static func setAlertVolume(_ value: Double) {
+        let fallback = 0.95
+        let v = value.isFinite ? value : fallback
+        let clamped = min(1.0, max(0.0, v))
+        UserDefaults.standard.set(clamped, forKey: alertVolumeKey)
+    }
+
+    static var alertVoiceIdentifier: String? {
+        let raw = (UserDefaults.standard.string(forKey: alertVoiceIdentifierKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return raw.isEmpty ? nil : raw
+    }
+
+    static func setAlertVoiceIdentifier(_ identifier: String?) {
+        let trimmed = (identifier ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: alertVoiceIdentifierKey)
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: alertVoiceIdentifierKey)
+        }
     }
 
     static var backendAuthorizationHeader: String? {
