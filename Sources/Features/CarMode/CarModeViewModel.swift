@@ -354,6 +354,11 @@ final class CarModeViewModel: ObservableObject {
 
         // Avoid showing raw HTML error pages in UI popups (e.g., Cloudflare 5xx/403 pages).
         let lower = trimmed.lowercased()
+
+        // Fleet: vehicle may be asleep/offline (common on app launch). Keep the UI calm and actionable.
+        if (lower.contains("http 408") && lower.contains("vehicle")) || lower.contains("vehicle unavailable") {
+            return "차량이 잠자고 있거나 오프라인입니다. Wake 누른 뒤 10초 후 Refresh 해주세요."
+        }
         if lower.contains("<!doctype html") || lower.contains("<html") {
             return "Server error (received HTML). Check tunnel/backend and try again."
         }

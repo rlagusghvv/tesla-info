@@ -1582,7 +1582,12 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
         activateAudioSession()
 
         let roundedSpeed = Int(max(0, speedKph.rounded()))
-        var text = "과속 단속 카메라 \(stage)미터 앞입니다"
+        var text: String
+        if let limit = speedLimitKph, limit > 0 {
+            text = "제한속도 \(limit)킬로 단속 카메라 \(stage)미터 앞입니다"
+        } else {
+            text = "단속 카메라 \(stage)미터 앞입니다"
+        }
         if stage <= 300, roundedSpeed >= 50 {
             text += ". 감속하세요"
         }

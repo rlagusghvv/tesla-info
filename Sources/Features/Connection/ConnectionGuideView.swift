@@ -40,6 +40,7 @@ struct ConnectionGuideView: View {
     @State private var alertVoiceIdentifier: String = AppConfig.alertVoiceIdentifier ?? ""
     @State private var availableAlertVoices: [AVSpeechSynthesisVoice] = []
     @State private var audioStatusText: String?
+    @State private var showVoicePicker = false
 
     private let quickBackendCandidates: [String] = [
         "https://tesla.splui.com",
@@ -259,22 +260,8 @@ struct ConnectionGuideView: View {
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.secondary)
 
-                Menu {
-                    Button("Default (ko-KR)") {
-                        alertVoiceIdentifier = ""
-                        AppConfig.setAlertVoiceIdentifier(nil)
-                        audioStatusText = "Voice: Default"
-                    }
-
-                    if !availableAlertVoices.isEmpty {
-                        ForEach(availableAlertVoices, id: \.identifier) { voice in
-                            Button(voiceMenuTitle(voice)) {
-                                alertVoiceIdentifier = voice.identifier
-                                AppConfig.setAlertVoiceIdentifier(voice.identifier)
-                                audioStatusText = "Voice: \(voiceMenuTitle(voice))"
-                            }
-                        }
-                    }
+                Button {
+                    showVoicePicker = true
                 } label: {
                     HStack(spacing: 10) {
                         Text(selectedAlertVoiceLabel)
@@ -288,7 +275,18 @@ struct ConnectionGuideView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(SecondaryCarButtonStyle(fontSize: 16, height: 56, cornerRadius: 16))
+                .sheet(isPresented: $showVoicePicker) {
+                    AlertVoicePickerView(voices: availableAlertVoices, selectedIdentifier: $alertVoiceIdentifier)
+                }
             }
+            .onChange(of: alertVoiceIdentifier) { _, next in
+                let trimmed = next.trimmingCharacters(in: .whitespacesAndNewlines)
+                AppConfig.setAlertVoiceIdentifier(trimmed.isEmpty ? nil : trimmed)
+                audioStatusText = trimmed.isEmpty ? "Voice: Default" : "Voice: \(selectedAlertVoiceLabel)"
+            }
+
+
+
 
             Button("Test Sound (voice + beep)") {
                 audioTestEngine.playDebugTest()
@@ -1454,5 +1452,74 @@ struct PaywallView: View {
             return "Monthly \(product.displayPrice)"
         }
         return "\(product.displayName) \(product.displayPrice)"
+    }
+}
+
+
+private struct AlertVoicePickerView: View {
+    let voices: [AVSpeechSynthesisVoice]
+    @Binding var selectedIdentifier: String
+
+    @Environment(\.dismiss) private var dismiss
+
+    private func voiceTitle(_ voice: AVSpeechSynthesisVoice) -> String {
+        let quality = voice.quality == .enhanced ? "Enhanced" : "Default"
+        return "\(voice.name) (\(quality))"
+    }
+
+    private func select(_ identifier: String) {
+        selectedIdentifier = identifier
+        dismiss()
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        select("")
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text("Default (ko-KR)")
+                            Spacer(minLength: 0)
+                            if selectedIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(Color.blue)
+                            }
+                        }
+                    }
+                }
+
+                if !voices.isEmpty {
+                    Section("Korean Voices") {
+                        ForEach(voices, id: \.identifier) { voice in
+                            Button {
+                                select(voice.identifier)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Text(voiceTitle(voice))
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    if selectedIdentifier == voice.identifier {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 14, weight: .bold))
+                                            .foregroundStyle(Color.blue)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Alert Voice")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }

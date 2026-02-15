@@ -175,6 +175,7 @@ struct CarModeView: View {
     @StateObject private var speedCameraAlertEngine = SpeedCameraAlertEngine()
     @State private var lastSyncedTeslaRouteSignature: String = ""
     @State private var lastTeslaRouteAttemptAt: Date = .distantPast
+    @State private var routeDriftStrikeCount: Int = 0
     @State private var lastAssistNetworkTickAt: Date = .distantPast
     @State private var naviHUDVisible: Bool = true
     @State private var showChromeInNavi: Bool = false
@@ -673,6 +674,7 @@ struct CarModeView: View {
         // Reset when Tesla route ends.
         guard let destination = viewModel.snapshot.navigation?.destination, destination.isValid else {
             lastSyncedTeslaRouteSignature = ""
+            routeDriftStrikeCount = 0
             naviModel.clearRoute()
             speedCameraAlertEngine.reset()
             return
@@ -732,10 +734,21 @@ struct CarModeView: View {
 
         if !force, signature == lastSyncedTeslaRouteSignature, naviModel.route != nil {
             // Re-sync when we detect route drift (different actual road than Kakao route), which reduces false positives.
-            if let origin, let drift = naviModel.routeMatchDistanceMeters(for: origin), drift <= 160 {
-                return
+            // Avoid route API churn by requiring moderate drift to persist across multiple samples.
+            if let origin, let drift = naviModel.routeMatchDistanceMeters(for: origin) {
+                if drift <= 90 {
+                    routeDriftStrikeCount = 0
+                    return
+                }
+                if drift <= 130 {
+                    routeDriftStrikeCount += 1
+                    if routeDriftStrikeCount < 2 {
+                        return
+                    }
+                }
             }
         }
+        routeDriftStrikeCount = 0
 
         // Prevent route API churn when GPS updates rapidly.
         let now = Date()
