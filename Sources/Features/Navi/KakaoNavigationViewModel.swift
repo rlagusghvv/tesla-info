@@ -902,7 +902,7 @@ final class KakaoNavigationViewModel: ObservableObject {
             let store = PublicSpeedCameraStore.shared
             await store.prewarm()
             if await store.cameraCount() == 0 {
-                _ = try? await store.refreshFromBackendIfNeeded(force: true)
+                _ = try? await store.refreshFromPreferredSourceIfNeeded(force: true)
             }
 
             guard let bounds = boundsForPolyline(polyline, marginMeters: boundsMarginMeters) else {
@@ -1043,7 +1043,7 @@ actor PublicSpeedCameraStore {
         await ensureLoaded()
         // Keep the dataset fresh, but never block UI on it.
         Task.detached(priority: .utility) {
-            _ = try? await PublicSpeedCameraStore.shared.refreshFromBackendIfNeeded(force: false)
+            _ = try? await PublicSpeedCameraStore.shared.refreshFromPreferredSourceIfNeeded(force: false)
         }
     }
 
@@ -1061,6 +1061,192 @@ actor PublicSpeedCameraStore {
         await ensureLoaded()
         guard !cameras.isEmpty else { return [] }
         return cameras.filter { bounds.contains(lat: $0.lat, lon: $0.lon) }
+    }
+
+    func refreshFromPreferredSourceIfNeeded(force: Bool) async throws -> Bool {
+        let key = AppConfig.dataGoKrServiceKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty {
+            return try await refreshFromDataGoKrIfNeeded(force: force, serviceKey: key)
+        }
+        return try await refreshFromBackendIfNeeded(force: force)
+    }
+
+    private func refreshFromDataGoKrIfNeeded(force: Bool, serviceKey: String) async throws -> Bool {
+        let now = Date()
+        if !force, let lastFetch = UserDefaults.standard.object(forKey: lastFetchKey) as? Date {
+            if now.timeIntervalSince(lastFetch) < (12 * 60 * 60) {
+                return false
+            }
+        }
+
+        let serviceKeyQS = serviceKeyForQuery(serviceKey)
+        guard !serviceKeyQS.isEmpty else {
+            throw NSError(
+                domain: "PublicSpeedCameraStore",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "Missing data.go.kr service key."]
+            )
+        }
+
+        let apiBase = "https://www.api.data.go.kr/openapi/tn_pubr_public_unmanned_traffic_camera_api"
+        let numOfRows = 1000
+        var pageNo = 1
+        var totalCount: Int? = nil
+        var seen: Set<String> = []
+        var collected: [PublicSpeedCamera] = []
+
+        while true {
+            let urlString = "\(apiBase)?serviceKey=\(serviceKeyQS)&pageNo=\(pageNo)&numOfRows=\(numOfRows)&type=json"
+            guard let url = URL(string: urlString) else {
+                throw URLError(.badURL)
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw URLError(.badServerResponse)
+            }
+
+            guard (200...299).contains(http.statusCode) else {
+                let message = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+                throw NSError(domain: "PublicSpeedCameraStore", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: message])
+            }
+
+            let json = try JSONSerialization.jsonObject(with: data, options: [])
+            let extracted = try extractDataGoKrItemsAndTotalCount(json)
+            if totalCount == nil {
+                totalCount = extracted.totalCount
+            }
+
+            if extracted.items.isEmpty {
+                break
+            }
+
+            for raw in extracted.items {
+                guard let dict = raw as? [String: Any] else { continue }
+                guard let camera = normalizeDataGoKrItem(dict) else { continue }
+                if seen.contains(camera.id) {
+                    continue
+                }
+                seen.insert(camera.id)
+                collected.append(camera)
+            }
+
+            let fetchedSoFar = pageNo * numOfRows
+            if let totalCount, fetchedSoFar >= totalCount {
+                break
+            }
+
+            pageNo += 1
+            if pageNo > 2000 {
+                break
+            }
+        }
+
+        collected.sort { $0.id < $1.id }
+
+        let payload = PublicSpeedCameraDataset(
+            schemaVersion: 1,
+            source: "data.go.kr openapi: tn_pubr_public_unmanned_traffic_camera_api",
+            updatedAt: ISO8601DateFormatter().string(from: now),
+            count: collected.count,
+            cameras: collected
+        )
+
+        let encoder = JSONEncoder()
+        let dataToCache = try encoder.encode(payload)
+
+        cameras = collected
+        index = GridIndex.build(from: collected)
+        isLoaded = true
+        UserDefaults.standard.set(now, forKey: lastFetchKey)
+        try? persistCache(data: dataToCache)
+        return true
+    }
+
+    private func extractDataGoKrItemsAndTotalCount(_ json: Any) throws -> (items: [Any], totalCount: Int) {
+        if let dict = json as? [String: Any] {
+            if let response = dict["response"] as? [String: Any],
+               let body = response["body"] as? [String: Any] {
+                let total = asInt(body["totalCount"] ?? body["matchCount"] ?? body["total_count"]) ?? 0
+                let itemsNode: Any? = {
+                    if let items = body["items"] as? [String: Any], let item = items["item"] {
+                        return item
+                    }
+                    return body["items"]
+                }()
+
+                let items: [Any] = {
+                    if let list = itemsNode as? [Any] { return list }
+                    if let single = itemsNode { return [single] }
+                    return []
+                }()
+
+                return (items: items, totalCount: total > 0 ? total : items.count)
+            }
+
+            if let data = dict["data"] as? [Any] {
+                let total = asInt(dict["totalCount"]) ?? data.count
+                return (items: data, totalCount: total)
+            }
+        }
+
+        throw URLError(.cannotParseResponse)
+    }
+
+    private func normalizeDataGoKrItem(_ item: [String: Any]) -> PublicSpeedCamera? {
+        let lat = asNumber(item["latitude"] ?? item["lat"])
+        let lon = asNumber(item["longitude"] ?? item["lon"])
+        guard let lat, let lon else {
+            return nil
+        }
+
+        let idRaw = String(describing: item["mnlssRegltCameraManageNo"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let id: String
+        if !idRaw.isEmpty, idRaw != "(null)" {
+            id = idRaw
+        } else {
+            id = String(format: "%.6f,%.6f", lat, lon)
+        }
+
+        let limit = asInt(item["lmttVe"] ?? item["limit"] ?? item["speedLimit"]) ?? 0
+        let normalizedLimit: Int? = limit > 0 ? limit : nil
+
+        return PublicSpeedCamera(id: id, lat: lat, lon: lon, limitKph: normalizedLimit)
+    }
+
+    private func serviceKeyForQuery(_ raw: String) -> String {
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return "" }
+
+        // data.go.kr shows both "인증키(Encoding)" (already URL-encoded) and "인증키(Decoding)" (raw).
+        // If it already contains percent-escapes, keep as-is; otherwise encode to keep '+' '/' '=' safe.
+        if key.range(of: "%[0-9A-Fa-f]{2}", options: .regularExpression) != nil {
+            return key
+        }
+
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        return key.addingPercentEncoding(withAllowedCharacters: allowed) ?? key
+    }
+
+    private func asNumber(_ value: Any?) -> Double? {
+        if let d = value as? Double, d.isFinite { return d }
+        if let i = value as? Int { return Double(i) }
+        if let n = value as? NSNumber { return n.doubleValue }
+        if let s = value as? String {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { return nil }
+            if let d = Double(trimmed), d.isFinite { return d }
+        }
+        return nil
+    }
+
+    private func asInt(_ value: Any?) -> Int? {
+        guard let n = asNumber(value) else { return nil }
+        return Int(n.rounded(.towardZero))
     }
 
     func refreshFromBackendIfNeeded(force: Bool) async throws -> Bool {

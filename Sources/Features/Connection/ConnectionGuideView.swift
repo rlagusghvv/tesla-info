@@ -16,12 +16,14 @@ struct ConnectionGuideView: View {
     @State private var showManualLogin = false
     @State private var showKakaoKey = false
     @State private var showKakaoJSKey = false
+    @State private var showDataGoKrKey = false
     @State private var showAdvancedTesla = false
     @State private var showTeslaDiagnostics = false
     @State private var showPaywall = false
     @State private var selectedTelemetrySource: TelemetrySource = AppConfig.telemetrySource
     @State private var backendURLText: String = AppConfig.backendBaseURLString
     @State private var backendAPITokenText: String = AppConfig.backendAPIToken
+    @State private var dataGoKrServiceKeyText: String = AppConfig.dataGoKrServiceKey
     @State private var showBackendToken = false
     @State private var isTestingBackend = false
     @State private var isDetectingBackend = false
@@ -86,6 +88,7 @@ struct ConnectionGuideView: View {
                     telemetrySourcePanel
                     teslaConfigPanel
                     kakaoConfigPanel
+                    speedCameraDataPanel
 
                     Button {
                         let source = AppConfig.telemetrySource
@@ -600,6 +603,59 @@ struct ConnectionGuideView: View {
         )
     }
 
+    private var speedCameraDataPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Speed Cameras (data.go.kr)")
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(dataGoKrServiceKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.orange : Color.green)
+                    .frame(width: 10, height: 10)
+                Text(dataGoKrServiceKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Service Key Optional (backend fallback)" : "Service Key Set")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 10) {
+                Group {
+                    if showDataGoKrKey {
+                        TextField("data.go.kr Service Key", text: $dataGoKrServiceKeyText)
+                    } else {
+                        SecureField("data.go.kr Service Key", text: $dataGoKrServiceKeyText)
+                    }
+                }
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+                Button(showDataGoKrKey ? "Hide" : "Show") {
+                    showDataGoKrKey.toggle()
+                }
+                .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
+                .frame(width: 90)
+            }
+
+            Button("Save") {
+                saveDataGoKrServiceKey()
+            }
+            .buttonStyle(SecondaryCarButtonStyle())
+            .frame(height: 70)
+
+            Text("If set, the app downloads the speed-camera dataset directly from data.go.kr (no backend). Key is stored in Keychain.")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+
     private func syncTeslaDraftFromStore() {
         teslaClientIdText = teslaAuth.clientId
         teslaClientSecretText = teslaAuth.clientSecret
@@ -629,6 +685,17 @@ struct ConnectionGuideView: View {
             AppConfig.setTelemetrySource(.backend)
             backendURLText = AppConfig.backendBaseURLString
             teslaAuth.statusMessage = "Saved backend URL. Telemetry Source switched to Backend."
+        } catch {
+            teslaAuth.statusMessage = error.localizedDescription
+        }
+    }
+
+    private func saveDataGoKrServiceKey() {
+        do {
+            try AppConfig.setDataGoKrServiceKey(dataGoKrServiceKeyText)
+            dataGoKrServiceKeyText = AppConfig.dataGoKrServiceKey
+            let set = !dataGoKrServiceKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            teslaAuth.statusMessage = set ? "Saved data.go.kr service key." : "Cleared data.go.kr service key."
         } catch {
             teslaAuth.statusMessage = error.localizedDescription
         }

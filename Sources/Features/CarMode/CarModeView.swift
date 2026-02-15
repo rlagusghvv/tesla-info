@@ -305,7 +305,7 @@ struct CarModeView: View {
                 content
                     .padding(.horizontal, isFullscreenNavi ? 0 : 16)
                     // Avoid double-safe-area padding (ScrollView already applies automatic insets on iOS).
-                    .padding(.top, isFullscreenNavi ? 0 : 12)
+                    .padding(.top, 0)
                     .padding(.bottom, isFullscreenNavi ? 0 : 12)
 
                 if !teslaAuth.isSignedIn {

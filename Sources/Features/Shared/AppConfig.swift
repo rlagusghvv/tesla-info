@@ -5,6 +5,7 @@ enum AppConfig {
     private static let backendOverrideKey = "backend_base_url_override"
     private static let telemetrySourceKey = "telemetry_source"
     private static let backendTokenKey = "backend.api.token"
+    private static let dataGoKrServiceKeyKey = "data_go_kr.service_key"
 
     // MVP: keep IAP code in place, but do not gate features until explicitly enabled.
     // Flip this by adding `SubdashIAPEnabled = YES` to Info.plist (or by wiring a remote flag later).
@@ -45,6 +46,26 @@ enum AppConfig {
             return token.isEmpty ? nil : token
         }
         return trimmed
+    }
+
+    static var dataGoKrServiceKey: String {
+        let stored = (KeychainStore.getString(dataGoKrServiceKeyKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stored.isEmpty {
+            return stored
+        }
+
+        let bundled = (Bundle.main.object(forInfoDictionaryKey: "DataGoKrServiceKey") as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return bundled
+    }
+
+    static func setDataGoKrServiceKey(_ key: String) throws {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            KeychainStore.delete(dataGoKrServiceKeyKey)
+            return
+        }
+        try KeychainStore.setString(trimmed, for: dataGoKrServiceKeyKey)
     }
 
     static var backendAuthorizationHeader: String? {
