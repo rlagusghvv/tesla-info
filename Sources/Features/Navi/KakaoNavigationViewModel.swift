@@ -182,6 +182,7 @@ final class KakaoNavigationViewModel: ObservableObject {
 
     @Published private(set) var vehicleCoordinate: CLLocationCoordinate2D?
     @Published private(set) var vehicleSpeedKph: Double = 0
+    @Published private(set) var vehicleCourseDeg: Double?
     @Published private(set) var routeRevision: Int = 0
     @Published private(set) var speedCameraRevision: Int = 0
     @Published private(set) var followPulse: Int = 0
@@ -201,6 +202,7 @@ final class KakaoNavigationViewModel: ObservableObject {
     private var speedCameraPOIGuides: [KakaoGuide] = []
     private var publicSpeedCameraGuides: [KakaoGuide] = []
     private var speedCameraGuideRoutePositionMeters: [String: Double] = [:]
+    private var speedCameraGuideRouteDistanceMeters: [String: Double] = [:]
     private var routeMatchPolyline: [CLLocationCoordinate2D] = []
     private var routeSegmentMeters: [Double] = []
     private var routeCumulativeMeters: [Double] = []
@@ -213,15 +215,32 @@ final class KakaoNavigationViewModel: ObservableObject {
     init() {
         loadFavorites()
     }
-
-    func updateVehicle(location: VehicleLocation, speedKph: Double) {
+    func updateVehicle(location: VehicleLocation, speedKph: Double, courseDeg: Double? = nil) {
         let nextCoordinate = location.isValid ? location.coordinate : nil
         let coordinateChanged = hasCoordinateChanged(current: vehicleCoordinate, next: nextCoordinate)
         let speedChanged = abs(vehicleSpeedKph - speedKph) >= 0.3
-        guard coordinateChanged || speedChanged else { return }
+
+        let courseChanged: Bool = {
+            func deltaDeg(_ a: Double, _ b: Double) -> Double {
+                let raw = abs(a - b).truncatingRemainder(dividingBy: 360)
+                return min(raw, 360 - raw)
+            }
+
+            switch (vehicleCourseDeg, courseDeg) {
+            case (nil, nil):
+                return false
+            case (nil, .some), (.some, nil):
+                return true
+            case let (.some(a), .some(b)):
+                return deltaDeg(a, b) >= 3
+            }
+        }()
+
+        guard coordinateChanged || speedChanged || courseChanged else { return }
 
         vehicleCoordinate = nextCoordinate
         vehicleSpeedKph = speedKph
+        vehicleCourseDeg = courseDeg
         updateNextSpeedCameraLimitIfNeeded()
     }
 
@@ -230,6 +249,7 @@ final class KakaoNavigationViewModel: ObservableObject {
         speedCameraPOIGuides = []
         publicSpeedCameraGuides = []
         speedCameraGuideRoutePositionMeters = [:]
+        speedCameraGuideRouteDistanceMeters = [:]
         routeMatchPolyline = []
         routeSegmentMeters = []
         routeCumulativeMeters = []
@@ -341,6 +361,7 @@ final class KakaoNavigationViewModel: ObservableObject {
             speedCameraPOIGuides = []
             publicSpeedCameraGuides = []
             speedCameraGuideRoutePositionMeters = [:]
+        speedCameraGuideRouteDistanceMeters = [:]
             routeMatchPolyline = []
             routeSegmentMeters = []
             routeCumulativeMeters = []
@@ -421,6 +442,7 @@ final class KakaoNavigationViewModel: ObservableObject {
                            cumulativeMeters: routeCumulativeMeters
                        ) {
                         speedCameraGuideRoutePositionMeters[g.id] = projection.alongRouteMeters
+                        speedCameraGuideRouteDistanceMeters[g.id] = projection.distanceToRouteMeters
                     }
                 }
             }
@@ -469,24 +491,66 @@ final class KakaoNavigationViewModel: ObservableObject {
         guard !cameraGuides.isEmpty else { return nil }
         guard let vehicleCoordinate else { return cameraGuides.first }
 
-        if let vehicleProjection = currentVehicleProjection(point: vehicleCoordinate),
-           vehicleProjection.distanceToRouteMeters <= 260 {
-            func sourcePrecedence(_ guide: KakaoGuide) -> Int {
-                if guide.id.hasPrefix("public:") { return 0 }
-                if guide.id.hasPrefix("poi:") { return 2 }
-                return 1
-            }
+        // Require decent route-match confidence; otherwise avoid noisy false positives.
+        guard let vehicleProjection = currentVehicleProjection(point: vehicleCoordinate),
+              vehicleProjection.distanceToRouteMeters <= 220 else {
+            return nil
+        }
 
+        func sourcePrecedence(_ guide: KakaoGuide) -> Int {
+            if guide.id.hasPrefix("public:") { return 0 }
+            if guide.id.hasPrefix("poi:") { return 2 }
+            return 1
+        }
+
+        func bearingDeg(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Double {
+            let lat1 = from.latitude * Double.pi / 180
+            let lat2 = to.latitude * Double.pi / 180
+            let dLon = (to.longitude - from.longitude) * Double.pi / 180
+            let y = sin(dLon) * cos(lat2)
+            let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+            let brng = atan2(y, x) * 180 / Double.pi
+            return (brng + 360).truncatingRemainder(dividingBy: 360)
+        }
+
+        func angleDeltaDeg(_ a: Double, _ b: Double) -> Double {
+            let raw = abs(a - b).truncatingRemainder(dividingBy: 360)
+            return min(raw, 360 - raw)
+        }
+
+        let minAheadMeters = vehicleProjection.alongRouteMeters + 35
+        let precedenceToleranceMeters = 80.0
+        let isHeadingReliable = vehicleSpeedKph >= 25 && vehicleCourseDeg != nil
+
+        let primaryMaxOffsetMeters: Double = {
+            let s = vehicleSpeedKph
+            if s >= 85 { return 45 }
+            if s >= 55 { return 60 }
+            return 85
+        }()
+        let fallbackMaxOffsetMeters = max(primaryMaxOffsetMeters, 120)
+
+        func pickBest(maxOffsetMeters: Double) -> KakaoGuide? {
             var best: KakaoGuide?
             var bestDistance = Double.greatestFiniteMagnitude
             var bestRouteMeters = Double.greatestFiniteMagnitude
+            var bestRouteOffset = Double.greatestFiniteMagnitude
             var bestPrecedence = Int.max
-            let minAheadMeters = vehicleProjection.alongRouteMeters + 25
-            let precedenceToleranceMeters = 80.0
 
             for g in cameraGuides {
-                guard let routeMeters = routePositionMeters(for: g) else { continue }
+                guard let guideProjection = routeProjection(for: g) else { continue }
+                let routeMeters = guideProjection.alongRouteMeters
+                let routeOffset = guideProjection.distanceToRouteMeters
+
                 guard routeMeters >= minAheadMeters else { continue }
+                guard routeOffset <= maxOffsetMeters else { continue }
+
+                if isHeadingReliable, let course = vehicleCourseDeg {
+                    let cameraBearing = bearingDeg(from: vehicleCoordinate, to: g.coordinate)
+                    if angleDeltaDeg(cameraBearing, course) > 95 {
+                        continue
+                    }
+                }
 
                 let d = distanceMeters(vehicleCoordinate, g.coordinate)
                 let p = sourcePrecedence(g)
@@ -495,6 +559,7 @@ final class KakaoNavigationViewModel: ObservableObject {
                     best = g
                     bestDistance = d
                     bestRouteMeters = routeMeters
+                    bestRouteOffset = routeOffset
                     bestPrecedence = p
                     continue
                 }
@@ -503,35 +568,50 @@ final class KakaoNavigationViewModel: ObservableObject {
                 let isClose = abs(delta) <= precedenceToleranceMeters
 
                 // Always prefer a clearly earlier camera along the route.
-                if delta < -20 {
+                if delta < -25 {
                     best = g
                     bestDistance = d
                     bestRouteMeters = routeMeters
+                    bestRouteOffset = routeOffset
                     bestPrecedence = p
                     continue
                 }
 
                 if isClose {
+                    // Prefer the candidate that is more likely on our road (closer to route polyline).
+                    if routeOffset < bestRouteOffset - 6 {
+                        best = g
+                        bestDistance = d
+                        bestRouteMeters = routeMeters
+                        bestRouteOffset = routeOffset
+                        bestPrecedence = p
+                        continue
+                    }
+
                     // If two candidates are basically the same camera, prefer public dataset for speed-limit coverage.
                     if p < bestPrecedence {
                         best = g
                         bestDistance = d
                         bestRouteMeters = routeMeters
+                        bestRouteOffset = routeOffset
                         bestPrecedence = p
                         continue
                     }
+
                     if p == bestPrecedence {
                         if routeMeters < bestRouteMeters {
                             best = g
                             bestDistance = d
                             bestRouteMeters = routeMeters
+                            bestRouteOffset = routeOffset
                             bestPrecedence = p
                             continue
                         }
-                        if routeMeters == bestRouteMeters, d < bestDistance {
+                        if d < bestDistance {
                             best = g
                             bestDistance = d
                             bestRouteMeters = routeMeters
+                            bestRouteOffset = routeOffset
                             bestPrecedence = p
                             continue
                         }
@@ -543,36 +623,17 @@ final class KakaoNavigationViewModel: ObservableObject {
                     best = g
                     bestDistance = d
                     bestRouteMeters = routeMeters
+                    bestRouteOffset = routeOffset
                     bestPrecedence = p
                 }
             }
-
-            if let best {
-                return best
-            }
+            return best
         }
 
-        var bestAny: KakaoGuide?
-        var bestAnyDistance = Double.greatestFiniteMagnitude
-
-        var bestAhead: KakaoGuide?
-        var bestAheadDistance = Double.greatestFiniteMagnitude
-
-        for g in cameraGuides {
-            let d = distanceMeters(vehicleCoordinate, g.coordinate)
-            if d < bestAnyDistance {
-                bestAnyDistance = d
-                bestAny = g
-            }
-
-            if d > 20, d < bestAheadDistance {
-                bestAheadDistance = d
-                bestAhead = g
-            }
-        }
-
-        return bestAhead ?? bestAny ?? cameraGuides.first
+        return pickBest(maxOffsetMeters: primaryMaxOffsetMeters)
+            ?? pickBest(maxOffsetMeters: fallbackMaxOffsetMeters)
     }
+
 
     func distanceToNextGuideMeters() -> Int? {
         guard let vehicleCoordinate, let guide = nextGuide else { return nil }
@@ -822,6 +883,7 @@ final class KakaoNavigationViewModel: ObservableObject {
         let polyline = route.polylineDense
         routeMatchPolyline = polyline
         speedCameraGuideRoutePositionMeters = [:]
+        speedCameraGuideRouteDistanceMeters = [:]
 
         guard polyline.count >= 2 else {
             routeSegmentMeters = []
@@ -855,6 +917,7 @@ final class KakaoNavigationViewModel: ObservableObject {
                 cumulativeMeters: cumulative
             ), projection.distanceToRouteMeters <= 260 {
                 speedCameraGuideRoutePositionMeters[g.id] = projection.alongRouteMeters
+                speedCameraGuideRouteDistanceMeters[g.id] = projection.distanceToRouteMeters
             }
         }
     }
@@ -870,15 +933,26 @@ final class KakaoNavigationViewModel: ObservableObject {
         )
     }
 
-    private func routePositionMeters(for guide: KakaoGuide) -> Double? {
-        if let cached = speedCameraGuideRoutePositionMeters[guide.id] {
-            return cached
+    func routeMatchDistanceMeters(for coordinate: CLLocationCoordinate2D) -> Double? {
+        currentVehicleProjection(point: coordinate)?.distanceToRouteMeters
+    }
+
+    private func routeProjection(for guide: KakaoGuide) -> RouteProjection? {
+        if let along = speedCameraGuideRoutePositionMeters[guide.id],
+           let distance = speedCameraGuideRouteDistanceMeters[guide.id] {
+            return RouteProjection(distanceToRouteMeters: distance, alongRouteMeters: along)
         }
+
         guard let projection = currentVehicleProjection(point: guide.coordinate) else { return nil }
         // Avoid caching wildly off-route projections (these are usually false positives from POI search).
         guard projection.distanceToRouteMeters <= 320 else { return nil }
         speedCameraGuideRoutePositionMeters[guide.id] = projection.alongRouteMeters
-        return projection.alongRouteMeters
+        speedCameraGuideRouteDistanceMeters[guide.id] = projection.distanceToRouteMeters
+        return projection
+    }
+
+    private func routePositionMeters(for guide: KakaoGuide) -> Double? {
+        routeProjection(for: guide)?.alongRouteMeters
     }
 
     private func schedulePublicSpeedCameraIndexing(
@@ -929,7 +1003,7 @@ final class KakaoNavigationViewModel: ObservableObject {
                 return
             }
 
-            var indexed: [(guide: KakaoGuide, routeMeters: Double)] = []
+            var indexed: [(guide: KakaoGuide, routeMeters: Double, routeDistanceMeters: Double)] = []
             indexed.reserveCapacity(min(512, candidates.count / 4))
 
             for camera in candidates {
@@ -953,7 +1027,8 @@ final class KakaoNavigationViewModel: ObservableObject {
                             durationSeconds: nil,
                             type: 9902
                         ),
-                        routeMeters: projection.alongRouteMeters
+                        routeMeters: projection.alongRouteMeters,
+                        routeDistanceMeters: projection.distanceToRouteMeters
                     )
                 )
             }
@@ -979,6 +1054,7 @@ final class KakaoNavigationViewModel: ObservableObject {
             }
 
             let routePositionMap: [String: Double] = Dictionary(uniqueKeysWithValues: indexed.map { ($0.guide.id, $0.routeMeters) })
+            let routeDistanceMap: [String: Double] = Dictionary(uniqueKeysWithValues: indexed.map { ($0.guide.id, $0.routeDistanceMeters) })
             let finalGuides = guides
 
             await MainActor.run {
@@ -986,6 +1062,9 @@ final class KakaoNavigationViewModel: ObservableObject {
                 self.publicSpeedCameraGuides = finalGuides
                 for (id, meters) in routePositionMap {
                     self.speedCameraGuideRoutePositionMeters[id] = meters
+                }
+                for (id, meters) in routeDistanceMap {
+                    self.speedCameraGuideRouteDistanceMeters[id] = meters
                 }
                 self.isIndexingSpeedCameras = false
                 self.refreshSpeedCameraGuideCount()

@@ -16,6 +16,7 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
     @Published private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published private(set) var latestLocation: CLLocation?
     @Published private(set) var latestSpeedKph: Double?
+    @Published private(set) var latestCourseDeg: Double?
     @Published private(set) var lastUpdatedAt: Date = .distantPast
 
     // Called after each CLLocation update (used to drive alerts even when UI isn't actively rendering).
@@ -97,6 +98,14 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
         return max(0, speed)
     }
 
+    var currentCourseDeg: Double? {
+        guard let course = latestCourseDeg else { return nil }
+        let age = Date().timeIntervalSince(lastUpdatedAt)
+        guard age <= 12 else { return nil }
+        guard course.isFinite else { return nil }
+        return course
+    }
+
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
             authorizationStatus = manager.authorizationStatus
@@ -134,6 +143,9 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
                         latestSpeedKph = computed
                     }
                 }
+            }
+            if latest.course >= 0 {
+                latestCourseDeg = latest.course
             }
             lastUpdatedAt = now
             onTick?()
@@ -646,11 +658,12 @@ struct CarModeView: View {
     private func updateAssistFromGPS() {
         // GPS-only: keep the last coordinate if GPS is temporarily unavailable.
         if let current = deviceLocationTracker.currentVehicleLocation {
-            naviModel.updateVehicle(location: current, speedKph: effectiveNaviSpeedKph)
+            naviModel.updateVehicle(location: current, speedKph: effectiveNaviSpeedKph, courseDeg: deviceLocationTracker.currentCourseDeg)
         } else if let existing = naviModel.vehicleCoordinate {
             naviModel.updateVehicle(
                 location: VehicleLocation(lat: existing.latitude, lon: existing.longitude),
-                speedKph: effectiveNaviSpeedKph
+                speedKph: effectiveNaviSpeedKph,
+                courseDeg: deviceLocationTracker.currentCourseDeg
             )
         }
         updateSpeedCameraAlerts()
@@ -714,8 +727,14 @@ struct CarModeView: View {
         let signature = teslaRouteSignature
         guard !signature.isEmpty else { return }
 
+        // GPS-only: route sync requires a GPS fix.
+        let origin = deviceLocationTracker.currentVehicleLocation?.coordinate ?? naviModel.vehicleCoordinate
+
         if !force, signature == lastSyncedTeslaRouteSignature, naviModel.route != nil {
-            return
+            // Re-sync when we detect route drift (different actual road than Kakao route), which reduces false positives.
+            if let origin, let drift = naviModel.routeMatchDistanceMeters(for: origin), drift <= 160 {
+                return
+            }
         }
 
         // Prevent route API churn when GPS updates rapidly.
@@ -727,8 +746,6 @@ struct CarModeView: View {
 
         let key = kakaoConfig.restAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
-        // GPS-only: route sync requires a GPS fix.
-        let origin = deviceLocationTracker.currentVehicleLocation?.coordinate ?? naviModel.vehicleCoordinate
         guard let origin else { return }
 
         await naviModel.startRoute(restAPIKey: key, origin: origin, destination: destination.coordinate)
