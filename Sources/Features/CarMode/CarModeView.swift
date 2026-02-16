@@ -198,6 +198,11 @@ struct CarModeView: View {
     private let phoneLayoutMaxWidth: CGFloat = 430
     private let useUltraLiteAssist = true
 
+    // Design Contract: keep spacing and card metrics on shared tokens.
+    private let uiSectionSpacing: CGFloat = 16
+    private let uiCardPadding: CGFloat = 16
+    private let uiCardCornerRadius: CGFloat = 20
+
     private var usePhoneSizedLayout: Bool {
         // Product decision: run car mode UI in iPhone-size layout on all devices.
         true
@@ -406,12 +411,13 @@ struct CarModeView: View {
     private var content: some View {
         GeometryReader { proxy in
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 12) {
+                VStack(spacing: uiSectionSpacing) {
                     regularCenterPanel
                     sidePanel
                 }
-                .padding(.bottom, 8)
+                .padding(.bottom, uiSectionSpacing)
             }
+            .contentMargins(.top, 0, for: .scrollContent)
             .frame(maxWidth: min(phoneLayoutMaxWidth, proxy.size.width))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
@@ -424,7 +430,7 @@ struct CarModeView: View {
                     .frame(maxWidth: .infinity)
                     .layoutPriority(1)
 
-                headerIconButton(systemImage: "person.crop.circle.fill") {}
+                headerIconButton(systemImage: "person.crop.circle.fill", accessibilityLabel: "계정 설정(비활성)") {}
                     .disabled(true)
             }
 
@@ -506,10 +512,10 @@ struct CarModeView: View {
 
             // Keep access to Account / Controls even in fullscreen mode.
             VStack(spacing: 10) {
-                headerIconButton(systemImage: "hand.tap") {
+                headerIconButton(systemImage: "hand.tap", accessibilityLabel: "화면 컨트롤 표시 전환") {
                     toggleChromeInNavi()
                 }
-                headerIconButton(systemImage: "person.crop.circle") {
+                headerIconButton(systemImage: "person.crop.circle", accessibilityLabel: "계정 설정 열기") {
                     showAccountSheet = true
                 }
             }
@@ -782,9 +788,9 @@ struct CarModeView: View {
     }
 
     private var regularCenterPanel: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: uiSectionSpacing) {
             HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Drive Assist")
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.black.opacity(0.88))
@@ -808,17 +814,17 @@ struct CarModeView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
 
-                headerIconButton(systemImage: "arrow.clockwise") {
+                headerIconButton(systemImage: "arrow.clockwise", accessibilityLabel: "차량 정보 새로고침") {
                     Task { await viewModel.refresh() }
                 }
                 .disabled(!networkMonitor.isConnected)
 
-                headerIconButton(systemImage: "waveform.path.ecg") {
+                headerIconButton(systemImage: "waveform.path.ecg", accessibilityLabel: "진단 화면 열기") {
                     showDiagnosticsSheet = true
                     refreshDiagnosticsSnapshot()
                 }
 
-                headerIconButton(systemImage: "person.crop.circle") {
+                headerIconButton(systemImage: "person.crop.circle", accessibilityLabel: "계정 설정 열기") {
                     showAccountSheet = true
                 }
             }
@@ -834,7 +840,7 @@ struct CarModeView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(Color(red: 1.0, green: 0.96, blue: 0.90))
@@ -858,13 +864,14 @@ struct CarModeView: View {
                 Spacer(minLength: 0)
             }
             .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .accessibilityElement(children: .combine)
         }
-        .padding(14)
+        .padding(uiCardPadding)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: uiCardCornerRadius + 2, style: .continuous)
                 .fill(Color.white)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    RoundedRectangle(cornerRadius: uiCardCornerRadius + 2, style: .continuous)
                         .stroke(Color.black.opacity(0.06), lineWidth: 1)
                 )
         )
@@ -887,7 +894,7 @@ struct CarModeView: View {
         showChromeInNavi.toggle()
     }
 
-    private func headerIconButton(systemImage: String, action: @escaping () -> Void) -> some View {
+    private func headerIconButton(systemImage: String, accessibilityLabel: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 17, weight: .bold))
@@ -903,6 +910,7 @@ struct CarModeView: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(Text(accessibilityLabel))
     }
 
     private struct CenterModeSegmentedControl: View {
@@ -1142,7 +1150,7 @@ struct CarModeView: View {
     }
 
     private var sidePanel: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             card {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(viewModel.snapshot.vehicle.displayName)
@@ -1172,12 +1180,46 @@ struct CarModeView: View {
                 }
             }
 
+            if viewModel.isLoading {
+                card {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .tint(.blue)
+                        Text("차량 데이터를 동기화하는 중입니다...")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.78))
+                    }
+                }
+            } else if viewModel.snapshot.navigation == nil {
+                card {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("경로 대기 중", systemImage: "location.slash")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.78))
+                        Text("테슬라에서 목적지를 설정하면 카메라 경고가 자동으로 시작됩니다.")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.60))
+                    }
+                }
+            }
+
             card {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Vehicle Controls")
+                    Text("차량 제어")
                         .font(.system(size: 15, weight: .black, design: .rounded))
                         .foregroundStyle(Color.black.opacity(0.86))
+
                     controlsGrid
+
+                    if !networkMonitor.isConnected {
+                        Text("네트워크 연결 후 제어 버튼이 활성화됩니다.")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.55))
+                    } else if viewModel.isCommandRunning {
+                        Text("명령 전송 중에는 버튼이 잠시 비활성화됩니다.")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.black.opacity(0.55))
+                    }
                 }
             }
 
@@ -1186,7 +1228,7 @@ struct CarModeView: View {
                     HStack(spacing: 10) {
                         ProgressView()
                             .tint(.blue)
-                        Text("Sending command...")
+                        Text("차량에 명령을 전송하는 중입니다...")
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundStyle(Color.black.opacity(0.78))
                     }
@@ -1203,11 +1245,25 @@ struct CarModeView: View {
 
             if let message = viewModel.errorMessage {
                 card {
-                    Text(message)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.red.opacity(0.88))
-                        .lineLimit(4)
-                        .truncationMode(.tail)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("연결 오류", systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(.red.opacity(0.88))
+
+                        Text(message)
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.red.opacity(0.88))
+                            .lineLimit(4)
+                            .truncationMode(.tail)
+
+                        Button {
+                            Task { await viewModel.refresh() }
+                        } label: {
+                            Label("다시 시도", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle(fontSize: 15, height: 44, cornerRadius: 12))
+                        .disabled(!networkMonitor.isConnected || viewModel.isCommandRunning)
+                    }
                 }
             }
 
@@ -1217,6 +1273,7 @@ struct CarModeView: View {
                 Label("Exit Car Mode", systemImage: "arrowshape.turn.up.backward.fill")
             }
             .buttonStyle(SecondaryCarButtonStyle(fontSize: 17, height: 52, cornerRadius: 14))
+            .accessibilityLabel(Text("차량 모드 종료"))
         }
     }
 
@@ -1427,6 +1484,7 @@ struct CarModeView: View {
                 Label("Account", systemImage: "person.crop.circle")
             }
             .buttonStyle(SecondaryCarButtonStyle(fontSize: 17, height: 54, cornerRadius: 14))
+            .accessibilityLabel(Text("계정 설정 열기"))
         }
     }
 
@@ -1443,6 +1501,8 @@ struct CarModeView: View {
         }
         .buttonStyle(primaryStyle(for: variant))
         .disabled(viewModel.isCommandRunning || !networkMonitor.isConnected)
+        .accessibilityLabel(Text(title))
+        .accessibilityHint(Text("차량 명령을 전송합니다"))
     }
 
     private func primaryStyle(for variant: ControlButtonVariant) -> PrimaryCarButtonStyle {
@@ -1695,13 +1755,13 @@ Recent logs:
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .padding(12)
+            .padding(uiCardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: uiCardCornerRadius, style: .continuous)
                     .fill(Color.white)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        RoundedRectangle(cornerRadius: uiCardCornerRadius, style: .continuous)
                             .stroke(Color.black.opacity(0.06), lineWidth: 1)
                     )
             )
