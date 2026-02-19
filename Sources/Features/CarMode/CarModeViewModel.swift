@@ -250,7 +250,7 @@ final class CarModeViewModel: ObservableObject {
 
         isCommandRunning = true
         commandMessage = nil
-        appLog(.route, "nav destination push: \(name) (\(coordinate.latitude), \(coordinate.longitude))", level: .info)
+        appLog(.route, "nav destination push: \(name)", level: .info)
         defer { isCommandRunning = false }
 
         do {

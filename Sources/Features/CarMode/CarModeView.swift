@@ -1715,7 +1715,7 @@ struct CarModeView: View {
 
             guard let loc = deviceLocationTracker.latestLocation else { return "GPS: none" }
             let age = Int(Date().timeIntervalSince(deviceLocationTracker.lastUpdatedAt))
-            return String(format: "GPS: %.5f, %.5f (±%dm, age %ds)", loc.coordinate.latitude, loc.coordinate.longitude, Int(loc.horizontalAccuracy), age)
+            return String(format: "GPS: fix acquired (±%dm, age %ds)", Int(loc.horizontalAccuracy), age)
         }()
 
         let camerasCached = await PublicSpeedCameraStore.shared.cameraCount()

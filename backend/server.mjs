@@ -42,6 +42,14 @@ const TESLAMATE_AUTH_HEADER = process.env.TESLAMATE_AUTH_HEADER || 'Authorizatio
 const TESLAMATE_TOKEN_QUERY_KEY = process.env.TESLAMATE_TOKEN_QUERY_KEY || '';
 const TESLAMATE_CONTAINER_NAME = process.env.TESLAMATE_CONTAINER_NAME || 'teslamate-stack-teslamate-1';
 const BACKEND_API_TOKEN = process.env.BACKEND_API_TOKEN || '';
+const ENFORCE_BACKEND_API_TOKEN = (() => {
+  const raw = String(process.env.ENFORCE_BACKEND_API_TOKEN || '').trim();
+  if (raw) {
+    return raw !== '0';
+  }
+  // Secure-by-default for non-simulator modes.
+  return MODE !== 'simulator';
+})();
 const TESLAMATE_SYNC_ON_EXCHANGE = process.env.TESLAMATE_SYNC_ON_EXCHANGE !== '0';
 const TESLAMATE_AUTO_AUTH_REPAIR = process.env.TESLAMATE_AUTO_AUTH_REPAIR !== '0';
 const TESLAMATE_AUTH_REPAIR_COOLDOWN_MS = Math.max(10_000, Number(process.env.TESLAMATE_AUTH_REPAIR_COOLDOWN_MS || 180_000));
@@ -57,6 +65,12 @@ const runtime = {
     lastError: null
   }
 };
+
+if (ENFORCE_BACKEND_API_TOKEN && !BACKEND_API_TOKEN) {
+  console.error('[tesla-subdash-backend] BACKEND_API_TOKEN is required when backend auth is enforced.');
+  console.error('[tesla-subdash-backend] Set BACKEND_API_TOKEN in .env (or set ENFORCE_BACKEND_API_TOKEN=0 for local-only debug).');
+  process.exit(1);
+}
 
 const SIM_ROUTE = [
   { lat: 37.498095, lon: 127.02761 },
@@ -135,9 +149,13 @@ function sendJson(res, status, body) {
 }
 
 function requireBackendToken(req) {
-  if (!BACKEND_API_TOKEN) {
+  if (!ENFORCE_BACKEND_API_TOKEN) {
     return { ok: true };
   }
+  if (!BACKEND_API_TOKEN) {
+    return { ok: false, message: 'Server misconfigured (BACKEND_API_TOKEN missing).' };
+  }
+
   const header = String(req.headers['x-backend-token'] || '').trim();
   const auth = String(req.headers.authorization || '').trim();
   const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
@@ -146,6 +164,13 @@ function requireBackendToken(req) {
     return { ok: true };
   }
   return { ok: false, message: 'Unauthorized (missing/invalid backend token).' };
+}
+
+function requireBackendTokenOrRespond(req, res) {
+  const authz = requireBackendToken(req);
+  if (authz.ok) return true;
+  sendJson(res, 401, { ok: false, message: authz.message });
+  return false;
 }
 
 function inferJwtGrantType(token) {
@@ -1001,27 +1026,17 @@ async function route(req, res) {
     sendJson(res, 200, {
       ok: true,
       mode: state.mode,
-      host: HOST,
-      configuredVin: TESLA_VIN || null,
-      resolvedVin: runtime.resolvedVin || null,
-      resolvedTeslaMateCarId: runtime.resolvedTeslaMateCarId || null,
-      hasUserAccessToken: !!TESLA_USER_ACCESS_TOKEN,
-      hasUserRefreshToken: !!TESLA_USER_REFRESH_TOKEN,
-      tokenGrantType: TESLA_TOKEN_GRANT_TYPE,
-      hasTeslaMateBase: !!TESLAMATE_API_BASE,
-      hasTeslaMateToken: !!TESLAMATE_API_TOKEN,
-      teslaMateAuthHeader: TESLAMATE_AUTH_HEADER,
-      teslaMateAutoAuthRepair: TESLAMATE_AUTO_AUTH_REPAIR,
-      teslaMateAuthRepairCooldownMs: TESLAMATE_AUTH_REPAIR_COOLDOWN_MS,
-      teslaMateAuthRepairSettleMs: TESLAMATE_AUTH_REPAIR_SETTLE_MS,
-      teslaMateAuthRepairState: runtime.authRepair,
       source: state.source,
-      updatedAt: state.updatedAt
+      updatedAt: state.updatedAt,
+      backendTokenRequired: ENFORCE_BACKEND_API_TOKEN
     });
     return;
   }
 
   if (req.method === 'GET' && url.pathname === '/api/vehicle/latest') {
+    if (!requireBackendTokenOrRespond(req, res)) {
+      return;
+    }
     sendJson(res, 200, snapshotResponse());
     return;
   }
@@ -1169,6 +1184,9 @@ async function route(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/tesla/vehicles') {
+    if (!requireBackendTokenOrRespond(req, res)) {
+      return;
+    }
     if (state.mode !== 'fleet') {
       sendJson(res, 400, { ok: false, message: 'This endpoint is available only in fleet mode.' });
       return;
@@ -1183,6 +1201,9 @@ async function route(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/teslamate/cars') {
+    if (!requireBackendTokenOrRespond(req, res)) {
+      return;
+    }
     if (state.mode !== 'teslamate') {
       sendJson(res, 400, { ok: false, message: 'Server is not in teslamate mode.' });
       return;
@@ -1197,6 +1218,9 @@ async function route(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/teslamate/status') {
+    if (!requireBackendTokenOrRespond(req, res)) {
+      return;
+    }
     if (state.mode !== 'teslamate') {
       sendJson(res, 400, { ok: false, message: 'Server is not in teslamate mode.' });
       return;
@@ -1211,6 +1235,9 @@ async function route(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/teslamate/repair-auth') {
+    if (!requireBackendTokenOrRespond(req, res)) {
+      return;
+    }
     if (state.mode !== 'teslamate') {
       sendJson(res, 400, { ok: false, message: 'Server is not in teslamate mode.' });
       return;
@@ -1245,6 +1272,9 @@ async function route(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/vehicle/command') {
+    if (!requireBackendTokenOrRespond(req, res)) {
+      return;
+    }
     try {
       const body = await readJson(req);
       const command = String(body.command || '').trim();
@@ -1311,6 +1341,9 @@ async function route(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/tesla/poll-now') {
+    if (!requireBackendTokenOrRespond(req, res)) {
+      return;
+    }
     if (state.mode === 'simulator') {
       sendJson(res, 400, { ok: false, message: 'Server is in simulator mode.' });
       return;
@@ -1325,6 +1358,9 @@ async function route(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/vehicle/poll-now') {
+    if (!requireBackendTokenOrRespond(req, res)) {
+      return;
+    }
     if (state.mode === 'simulator') {
       sendJson(res, 400, { ok: false, message: 'Server is in simulator mode.' });
       return;
@@ -1369,6 +1405,7 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`[tesla-subdash-backend] listening on http://${HOST}:${PORT}`);
   console.log(`[tesla-subdash-backend] mode=${state.mode} pollEnabled=${POLL_ENABLED}`);
+  console.log(`[tesla-subdash-backend] backendAuth=${ENFORCE_BACKEND_API_TOKEN ? 'required' : 'optional'} token=${BACKEND_API_TOKEN ? 'set' : 'missing'}`);
   console.log(
     `[tesla-subdash-backend] userToken=${TESLA_USER_ACCESS_TOKEN ? 'set' : 'missing'} configuredVin=${
       TESLA_VIN || '(auto)'
