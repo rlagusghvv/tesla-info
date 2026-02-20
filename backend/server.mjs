@@ -18,6 +18,7 @@ const SPEED_CAMERA_DATA_PATH = path.resolve(
   __dirname,
   process.env.SPEED_CAMERA_DATA_PATH || './data/speed_cameras_kr.min.json'
 );
+const PRIVACY_HTML_PATH = path.resolve(__dirname, './public/privacy.html');
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -146,6 +147,15 @@ function sendJson(res, status, body) {
     'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token'
   });
   res.end(payload);
+}
+
+async function sendHtmlFile(res, filePath) {
+  const html = await fs.readFile(filePath, 'utf8');
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': Buffer.byteLength(html)
+  });
+  res.end(html);
 }
 
 function requireBackendToken(req) {
@@ -1021,6 +1031,15 @@ async function route(req, res) {
   }
 
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+
+  if (req.method === 'GET' && (url.pathname === '/privacy' || url.pathname === '/privacy/')) {
+    try {
+      await sendHtmlFile(res, PRIVACY_HTML_PATH);
+    } catch {
+      sendJson(res, 404, { ok: false, message: 'Privacy page not found.' });
+    }
+    return;
+  }
 
   if (req.method === 'GET' && url.pathname === '/health') {
     sendJson(res, 200, {
