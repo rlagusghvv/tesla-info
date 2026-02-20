@@ -1657,7 +1657,10 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
         func buildEngine() -> (engine: AVAudioEngine, player: AVAudioPlayerNode, format: AVAudioFormat)? {
             let engine = AVAudioEngine()
             let player = AVAudioPlayerNode()
-            let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+            guard let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1) else {
+                appLog(.audio, "beep format create failed", level: .warn)
+                return nil
+            }
 
             engine.attach(player)
             engine.connect(player, to: engine.mainMixerNode, format: format)
@@ -1709,19 +1712,22 @@ final class SpeedCameraAlertEngine: NSObject, ObservableObject, AVSpeechSynthesi
 
         player.volume = Float(AppConfig.alertVolume)
 
-        let buffer = makeDoubleBeepBuffer(format: format)
+        guard let buffer = makeDoubleBeepBuffer(format: format) else { return }
         player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
     }
 
 
-    private func makeDoubleBeepBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer {
+    private func makeDoubleBeepBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let sampleRate = format.sampleRate
         let beepSeconds = 0.12
         let gapSeconds = 0.06
         let totalSeconds = (beepSeconds * 2.0) + gapSeconds
         let totalFrames = AVAudioFrameCount(totalSeconds * sampleRate)
 
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames)!
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames) else {
+            appLog(.audio, "beep buffer create failed", level: .warn)
+            return nil
+        }
         buffer.frameLength = totalFrames
 
         guard let channel = buffer.floatChannelData?[0] else {

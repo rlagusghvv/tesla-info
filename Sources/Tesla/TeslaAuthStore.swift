@@ -308,10 +308,17 @@ final class TeslaAuthStore: ObservableObject {
 
     private func randomBase64URL(bytes: Int) -> String {
         var data = Data(count: bytes)
-        _ = data.withUnsafeMutableBytes { ptr in
-            SecRandomCopyBytes(kSecRandomDefault, bytes, ptr.baseAddress!)
+        let status = data.withUnsafeMutableBytes { ptr -> Int32 in
+            guard let base = ptr.baseAddress else { return errSecParam }
+            return SecRandomCopyBytes(kSecRandomDefault, bytes, base)
         }
-        return base64url(data)
+        if status == errSecSuccess {
+            return base64url(data)
+        }
+
+        // PKCE verifier fallback: keep flow alive even if secure random fails unexpectedly.
+        let fallback = Data((UUID().uuidString + UUID().uuidString).utf8)
+        return base64url(fallback)
     }
 
     private func sha256Base64URL(_ input: String) -> String {

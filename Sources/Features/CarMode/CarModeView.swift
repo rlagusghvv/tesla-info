@@ -46,6 +46,10 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
             return
         }
         if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+            if hasStartedUpdates {
+                manager.requestLocation()
+                return
+            }
             if authorizationStatus == .authorizedWhenInUse && !hasRequestedAlwaysAuthorization {
                 hasRequestedAlwaysAuthorization = true
                 manager.requestAlwaysAuthorization()
@@ -114,10 +118,12 @@ private final class DeviceLocationTracker: NSObject, ObservableObject, CLLocatio
                     hasRequestedAlwaysAuthorization = true
                     manager.requestAlwaysAuthorization()
                 }
-                manager.startUpdatingLocation()
-                manager.startMonitoringSignificantLocationChanges()
+                if !hasStartedUpdates {
+                    manager.startUpdatingLocation()
+                    manager.startMonitoringSignificantLocationChanges()
+                    hasStartedUpdates = true
+                }
                 manager.requestLocation()
-                hasStartedUpdates = true
             } else if authorizationStatus == .denied || authorizationStatus == .restricted {
                 manager.stopUpdatingLocation()
                 manager.stopMonitoringSignificantLocationChanges()
@@ -177,6 +183,7 @@ struct CarModeView: View {
     @State private var lastTeslaRouteAttemptAt: Date = .distantPast
     @State private var routeDriftStrikeCount: Int = 0
     @State private var lastAssistNetworkTickAt: Date = .distantPast
+    @State private var assistNetworkTask: Task<Void, Never>?
     @State private var naviHUDVisible: Bool = true
     @State private var showChromeInNavi: Bool = false
     @State private var showAccountSheet: Bool = false
@@ -387,6 +394,8 @@ struct CarModeView: View {
             viewModel.stop()
             deviceLocationTracker.stop()
             deviceLocationTracker.onTick = nil
+            assistNetworkTask?.cancel()
+            assistNetworkTask = nil
         }
         .onChange(of: scenePhase) { _, next in
             switch next {
@@ -394,9 +403,12 @@ struct CarModeView: View {
                 appLog(.app, "scenePhase active", level: .info)
                 viewModel.start()
                 deviceLocationTracker.start()
+                Task { await viewModel.refresh() }
             case .inactive, .background:
                 appLog(.app, "scenePhase background", level: .info)
                 Task { await AppLogStore.shared.persist() }
+                assistNetworkTask?.cancel()
+                assistNetworkTask = nil
                 viewModel.stop()
             @unknown default:
                 break
@@ -661,6 +673,7 @@ struct CarModeView: View {
         updateAssistFromGPS()
 
         guard viewModel.snapshot.navigation != nil else { return }
+        guard scenePhase == .active else { return }
 
         // Throttle network-dependent work (route sync / POI refresh) so we do not spawn a Task for every GPS tick.
         let now = Date()
@@ -669,9 +682,14 @@ struct CarModeView: View {
         }
         lastAssistNetworkTickAt = now
 
-        Task {
+        guard assistNetworkTask == nil else { return }
+        assistNetworkTask = Task { @MainActor in
+            defer { assistNetworkTask = nil }
+            if Task.isCancelled { return }
             await syncRouteFromTeslaIfNeeded(force: false)
+            if Task.isCancelled { return }
             await naviModel.refreshSpeedCameraPOIsIfNeeded(restAPIKey: kakaoConfig.restAPIKey, force: false)
+            if Task.isCancelled { return }
             updateSpeedCameraAlerts()
         }
     }
