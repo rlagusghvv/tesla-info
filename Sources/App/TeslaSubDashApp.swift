@@ -1,4 +1,3 @@
-import Combine
 import SwiftUI
 import UIKit
 
@@ -19,27 +18,12 @@ struct TeslaSubDashApp: App {
                 .environmentObject(kakaoConfig)
                 .environmentObject(subscription)
                 .onAppear {
+                    // Stability-first launch: do not auto-enter Car Mode on app start.
+                    // Car Mode should start only via explicit user action (button/shortcut/deeplink).
                     consumeStartCarModeFlagIfNeeded()
-                    if networkMonitor.isConnected, teslaAuth.isSignedIn {
-                        router.enterCarMode(reason: .alreadyConnected)
-                    }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     consumeStartCarModeFlagIfNeeded()
-                }
-                .onReceive(networkMonitor.$isConnected.removeDuplicates()) { connected in
-                    if connected, teslaAuth.isSignedIn {
-                        router.enterCarMode(reason: .networkConnected)
-                    } else if !teslaAuth.isSignedIn {
-                        router.showGuide()
-                    }
-                }
-                .onReceive(teslaAuth.$isSignedIn.removeDuplicates()) { signedIn in
-                    if signedIn, networkMonitor.isConnected {
-                        router.enterCarMode(reason: .alreadyConnected)
-                    } else if !signedIn {
-                        router.showGuide()
-                    }
                 }
                 .onOpenURL { url in
                     if url.scheme == "myapp", (url.host?.lowercased() == "oauth") {
