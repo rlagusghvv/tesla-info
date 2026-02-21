@@ -19,6 +19,8 @@ const SPEED_CAMERA_DATA_PATH = path.resolve(
   process.env.SPEED_CAMERA_DATA_PATH || './data/speed_cameras_kr.min.json'
 );
 const PRIVACY_HTML_PATH = path.resolve(__dirname, './public/privacy.html');
+const SUPPORT_HTML_PATH = path.resolve(__dirname, './public/support.html');
+const TERMS_HTML_PATH = path.resolve(__dirname, './public/terms.html');
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -157,6 +159,15 @@ async function sendHtmlFile(res, filePath) {
   });
   res.end(html);
 }
+
+const STATIC_PAGE_PATHS = new Map([
+  ['/privacy', PRIVACY_HTML_PATH],
+  ['/privacy/', PRIVACY_HTML_PATH],
+  ['/support', SUPPORT_HTML_PATH],
+  ['/support/', SUPPORT_HTML_PATH],
+  ['/terms', TERMS_HTML_PATH],
+  ['/terms/', TERMS_HTML_PATH]
+]);
 
 function requireBackendToken(req) {
   if (!ENFORCE_BACKEND_API_TOKEN) {
@@ -1032,11 +1043,11 @@ async function route(req, res) {
 
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
-  if (req.method === 'GET' && (url.pathname === '/privacy' || url.pathname === '/privacy/')) {
+  if (req.method === 'GET' && STATIC_PAGE_PATHS.has(url.pathname)) {
     try {
-      await sendHtmlFile(res, PRIVACY_HTML_PATH);
+      await sendHtmlFile(res, STATIC_PAGE_PATHS.get(url.pathname));
     } catch {
-      sendJson(res, 404, { ok: false, message: 'Privacy page not found.' });
+      sendJson(res, 404, { ok: false, message: `Static page not found: ${url.pathname}` });
     }
     return;
   }
