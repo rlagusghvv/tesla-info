@@ -34,7 +34,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>49</string>
+	<string>50</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSAppTransportSecurity</key>
@@ -65,7 +65,6 @@
 	<string>주행 중 현재 위치와 속도 기반 안내(카메라 경보/팔로우 지도)를 위해 위치 권한이 필요합니다.</string>
 	<key>UIBackgroundModes</key>
 	<array>
-		<string>audio</string>
 		<string>location</string>
 	</array>
 	<key>UILaunchScreen</key>
