@@ -227,8 +227,15 @@ If TeslaMate loses login/session, backend now tries an automatic repair flow:
 - In `Shared/Config/Info.plist`, `BackendBaseURL` defaults to `https://tesla.splui.com` (you can still override in-app for LAN/local testing).
 - Backend auth is now enforced by default in non-simulator mode.
   - Server: set `BACKEND_API_TOKEN` in `.env` (same value on every restart).
-  - App: open `Connection Guide` > `Backend API Token` > paste token > `Save`.
+  - App: login or sign up in-app (`Subdash 로그인/회원가입`).
+  - First boot seeds default admin account: `admin / admin`.
   - Local debug only: set `ENFORCE_BACKEND_API_TOKEN=0` (not for production/beta).
+- App login bootstrap:
+  - Backend returns account-specific Tesla/Kakao keys + backend token after auth.
+  - App auto-saves those keys to Keychain, then switches telemetry source to `Backend`.
+- User/account storage env vars:
+  - `APP_USERS_PATH=./data/app_users.json`
+  - `APP_AUTH_SESSION_TTL_MS=86400000`
 - For physical iPad testing, start backend in LAN mode so it can accept connections:
   - `npm run backend:start:tesla:lan` (Fleet)
   - `npm run backend:start:teslamate:lan` (TeslaMate fallback)
@@ -258,6 +265,12 @@ If TeslaMate loses login/session, backend now tries an automatic repair flow:
 ## API contract (MVP)
 
 - `GET /health`
+- `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET /api/auth/bootstrap`
+- `POST /api/auth/keys`
+- `POST /api/auth/logout`
 - `GET /api/vehicle/latest`
 - `GET /api/tesla/vehicles` (fleet token required)
 - `GET /api/teslamate/cars` (teslamate mode only)

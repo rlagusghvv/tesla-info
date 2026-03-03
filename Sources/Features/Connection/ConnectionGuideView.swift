@@ -8,6 +8,7 @@ struct ConnectionGuideView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var networkMonitor: NetworkMonitor
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var adminSession: AdminSessionStore
     @EnvironmentObject private var teslaAuth: TeslaAuthStore
     @EnvironmentObject private var kakaoConfig: KakaoConfigStore
     @EnvironmentObject private var subscription: SubscriptionManager
@@ -592,6 +593,7 @@ struct ConnectionGuideView: View {
                     Button("Save") {
                         syncTeslaDraftToStore()
                         teslaAuth.saveConfig()
+                        syncAccountKeysToServer(successMessage: "Tesla 설정 저장 완료")
                     }
                     .buttonStyle(SecondaryCarButtonStyle())
 
@@ -727,6 +729,7 @@ struct ConnectionGuideView: View {
 
             Button("Save") {
                 kakaoConfig.save()
+                syncAccountKeysToServer(successMessage: "Kakao 설정 저장 완료")
             }
             .buttonStyle(SecondaryCarButtonStyle())
             .frame(height: 70)
@@ -804,6 +807,25 @@ struct ConnectionGuideView: View {
         if includeManual {
             teslaAuth.manualCode = teslaManualCodeText
             teslaAuth.manualState = teslaManualStateText
+        }
+    }
+
+    private func syncAccountKeysToServer(successMessage: String) {
+        Task {
+            do {
+                try await adminSession.syncUserKeysToBackend(
+                    teslaClientId: teslaAuth.clientId,
+                    teslaClientSecret: teslaAuth.clientSecret,
+                    teslaRedirectURI: teslaAuth.redirectURI,
+                    teslaAudience: teslaAuth.audience,
+                    teslaFleetApiBase: teslaAuth.fleetApiBase,
+                    kakaoRestAPIKey: kakaoConfig.restAPIKey,
+                    kakaoJavaScriptKey: kakaoConfig.javaScriptKey
+                )
+                teslaAuth.statusMessage = "\(successMessage) (계정 동기화 완료)"
+            } catch {
+                teslaAuth.statusMessage = "로컬 저장됨 / 서버 동기화 실패: \(error.localizedDescription)"
+            }
         }
     }
 

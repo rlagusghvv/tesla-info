@@ -74,3 +74,4 @@ tesla-subdash-starter/fastlane/.env.asc
 # Generated public datasets (do not commit)
 backend/data/speed_cameras_kr.min.json
 backend/data/raw/
+backend/data/app_users.json

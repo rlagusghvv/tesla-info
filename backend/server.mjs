@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFile, upsertEnvFile } from './env.mjs';
 import { createTeslaMateClient } from './teslamate_client.mjs';
@@ -45,6 +46,12 @@ const TESLAMATE_AUTH_HEADER = process.env.TESLAMATE_AUTH_HEADER || 'Authorizatio
 const TESLAMATE_TOKEN_QUERY_KEY = process.env.TESLAMATE_TOKEN_QUERY_KEY || '';
 const TESLAMATE_CONTAINER_NAME = process.env.TESLAMATE_CONTAINER_NAME || 'teslamate-stack-teslamate-1';
 const BACKEND_API_TOKEN = process.env.BACKEND_API_TOKEN || '';
+const APP_USERS_PATH = path.resolve(__dirname, process.env.APP_USERS_PATH || './data/app_users.json');
+const APP_DEFAULT_ADMIN_USERNAME = 'admin';
+const APP_DEFAULT_ADMIN_PASSWORD = 'admin';
+const KAKAO_REST_API_KEY = process.env.KAKAO_REST_API_KEY || '';
+const KAKAO_JAVASCRIPT_KEY = process.env.KAKAO_JAVASCRIPT_KEY || '';
+const APP_AUTH_SESSION_TTL_MS = Math.max(60_000, Number(process.env.APP_AUTH_SESSION_TTL_MS || 86_400_000));
 const ENFORCE_BACKEND_API_TOKEN = (() => {
   const raw = String(process.env.ENFORCE_BACKEND_API_TOKEN || '').trim();
   if (raw) {
@@ -74,6 +81,9 @@ if (ENFORCE_BACKEND_API_TOKEN && !BACKEND_API_TOKEN) {
   console.error('[tesla-subdash-backend] Set BACKEND_API_TOKEN in .env (or set ENFORCE_BACKEND_API_TOKEN=0 for local-only debug).');
   process.exit(1);
 }
+
+const appSessions = new Map();
+const appUsersByUsername = new Map();
 
 const SIM_ROUTE = [
   { lat: 37.498095, lon: 127.02761 },
@@ -146,7 +156,7 @@ function sendJson(res, status, body) {
     'Content-Length': Buffer.byteLength(payload),
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token'
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token,X-App-Session,X-Api-Key'
   });
   res.end(payload);
 }
@@ -192,6 +202,326 @@ function requireBackendTokenOrRespond(req, res) {
   if (authz.ok) return true;
   sendJson(res, 401, { ok: false, message: authz.message });
   return false;
+}
+
+function hashSecret(secret, salt) {
+  return crypto.scryptSync(String(secret || ''), String(salt || ''), 64).toString('hex');
+}
+
+function timingSafeEqualString(left, right) {
+  const a = Buffer.from(String(left || ''), 'utf8');
+  const b = Buffer.from(String(right || ''), 'utf8');
+  if (a.length !== b.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(a, b);
+}
+
+function resolveRequestOrigin(req) {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    .trim();
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '')
+    .split(',')[0]
+    .trim();
+  const host = forwardedHost || String(req.headers.host || '').trim();
+  if (!host) {
+    return null;
+  }
+  const proto = forwardedProto || 'http';
+  return `${proto}://${host}`;
+}
+
+function normalizeUsername(raw) {
+  return String(raw || '').trim().toLowerCase();
+}
+
+function isValidUsername(username) {
+  return /^[a-z0-9._-]{3,32}$/.test(String(username || ''));
+}
+
+function isValidPassword(password) {
+  const value = String(password || '');
+  return value.length >= 4 && value.length <= 128;
+}
+
+function sanitizeTrimmedString(raw, { maxLength = 2048 } = {}) {
+  const text = String(raw ?? '').trim();
+  if (!text) return '';
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
+}
+
+function hashUserPassword(username, password) {
+  const normalizedUsername = normalizeUsername(username);
+  return hashSecret(password, `subdash-user-password-v1:${normalizedUsername}`);
+}
+
+function defaultTeslaSettingsForUser() {
+  return {
+    clientId: '',
+    clientSecret: '',
+    redirectURI: process.env.TESLA_REDIRECT_URI || '',
+    audience: process.env.TESLA_AUDIENCE || TESLA_FLEET_API_BASE || '',
+    fleetApiBase: TESLA_FLEET_API_BASE || ''
+  };
+}
+
+function defaultTeslaSettingsForAdminSeed() {
+  return {
+    clientId: TESLA_CLIENT_ID || '',
+    clientSecret: TESLA_CLIENT_SECRET || '',
+    redirectURI: process.env.TESLA_REDIRECT_URI || '',
+    audience: process.env.TESLA_AUDIENCE || TESLA_FLEET_API_BASE || '',
+    fleetApiBase: TESLA_FLEET_API_BASE || ''
+  };
+}
+
+function normalizeTeslaSettings(raw, fallback = defaultTeslaSettingsForUser()) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    clientId: sanitizeTrimmedString(source.clientId ?? fallback.clientId ?? '', { maxLength: 1024 }),
+    clientSecret: sanitizeTrimmedString(source.clientSecret ?? fallback.clientSecret ?? '', { maxLength: 1024 }),
+    redirectURI: sanitizeTrimmedString(source.redirectURI ?? fallback.redirectURI ?? '', { maxLength: 1024 }),
+    audience: sanitizeTrimmedString(source.audience ?? fallback.audience ?? '', { maxLength: 1024 }),
+    fleetApiBase: sanitizeTrimmedString(source.fleetApiBase ?? fallback.fleetApiBase ?? '', { maxLength: 1024 })
+  };
+}
+
+function normalizeKakaoSettings(raw, fallback = { restAPIKey: '', javaScriptKey: '' }) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    restAPIKey: sanitizeTrimmedString(source.restAPIKey ?? fallback.restAPIKey ?? '', { maxLength: 1024 }),
+    javaScriptKey: sanitizeTrimmedString(source.javaScriptKey ?? fallback.javaScriptKey ?? '', { maxLength: 1024 })
+  };
+}
+
+function createUserRecord({ username, password, role = 'member', settings = null }) {
+  const normalizedUsername = normalizeUsername(username);
+  const now = new Date().toISOString();
+  return {
+    username: normalizedUsername,
+    role: role === 'admin' ? 'admin' : 'member',
+    passwordHash: hashUserPassword(normalizedUsername, password),
+    createdAt: now,
+    updatedAt: now,
+    settings: {
+      tesla: normalizeTeslaSettings(settings?.tesla ?? null, defaultTeslaSettingsForUser()),
+      kakao: normalizeKakaoSettings(settings?.kakao ?? null, { restAPIKey: '', javaScriptKey: '' })
+    }
+  };
+}
+
+function normalizeLoadedUserRecord(raw) {
+  const username = normalizeUsername(raw?.username);
+  if (!username) return null;
+  const passwordHash = sanitizeTrimmedString(raw?.passwordHash ?? '', { maxLength: 1024 });
+  if (!passwordHash) return null;
+  return {
+    username,
+    role: String(raw?.role || '').toLowerCase() === 'admin' ? 'admin' : 'member',
+    passwordHash,
+    createdAt: sanitizeTrimmedString(raw?.createdAt ?? '', { maxLength: 128 }) || new Date().toISOString(),
+    updatedAt: sanitizeTrimmedString(raw?.updatedAt ?? '', { maxLength: 128 }) || new Date().toISOString(),
+    settings: {
+      tesla: normalizeTeslaSettings(raw?.settings?.tesla ?? null, defaultTeslaSettingsForUser()),
+      kakao: normalizeKakaoSettings(raw?.settings?.kakao ?? null, { restAPIKey: '', javaScriptKey: '' })
+    }
+  };
+}
+
+function listStoredUsers() {
+  return Array.from(appUsersByUsername.values()).sort((a, b) => a.username.localeCompare(b.username));
+}
+
+let appUsersWriteChain = Promise.resolve();
+
+function queuePersistUsers() {
+  appUsersWriteChain = appUsersWriteChain.catch(() => {}).then(async () => {
+    await fs.mkdir(path.dirname(APP_USERS_PATH), { recursive: true });
+    const payload = {
+      version: 1,
+      users: listStoredUsers()
+    };
+    await fs.writeFile(APP_USERS_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  });
+  return appUsersWriteChain;
+}
+
+function fillIfMissing(target, key, value) {
+  const next = sanitizeTrimmedString(value ?? '', { maxLength: 1024 });
+  if (!next) return false;
+  if (sanitizeTrimmedString(target?.[key] ?? '', { maxLength: 1024 })) return false;
+  target[key] = next;
+  return true;
+}
+
+function ensureAdminSeedUser() {
+  const adminUsername = APP_DEFAULT_ADMIN_USERNAME;
+  const adminPasswordHash = hashUserPassword(adminUsername, APP_DEFAULT_ADMIN_PASSWORD);
+  const adminTeslaSeed = normalizeTeslaSettings(defaultTeslaSettingsForAdminSeed(), defaultTeslaSettingsForAdminSeed());
+  const adminKakaoSeed = normalizeKakaoSettings(
+    {
+      restAPIKey: KAKAO_REST_API_KEY,
+      javaScriptKey: KAKAO_JAVASCRIPT_KEY
+    },
+    { restAPIKey: '', javaScriptKey: '' }
+  );
+
+  const existing = appUsersByUsername.get(adminUsername);
+  if (!existing) {
+    appUsersByUsername.set(
+      adminUsername,
+      createUserRecord({
+        username: adminUsername,
+        password: APP_DEFAULT_ADMIN_PASSWORD,
+        role: 'admin',
+        settings: {
+          tesla: adminTeslaSeed,
+          kakao: adminKakaoSeed
+        }
+      })
+    );
+    return true;
+  }
+
+  let changed = false;
+  if (existing.role !== 'admin') {
+    existing.role = 'admin';
+    changed = true;
+  }
+
+  // Keep admin/admin deterministic as requested.
+  if (!timingSafeEqualString(existing.passwordHash, adminPasswordHash)) {
+    existing.passwordHash = adminPasswordHash;
+    changed = true;
+  }
+
+  existing.settings = {
+    tesla: normalizeTeslaSettings(existing.settings?.tesla ?? null, defaultTeslaSettingsForUser()),
+    kakao: normalizeKakaoSettings(existing.settings?.kakao ?? null, { restAPIKey: '', javaScriptKey: '' })
+  };
+
+  changed = fillIfMissing(existing.settings.tesla, 'clientId', adminTeslaSeed.clientId) || changed;
+  changed = fillIfMissing(existing.settings.tesla, 'clientSecret', adminTeslaSeed.clientSecret) || changed;
+  changed = fillIfMissing(existing.settings.tesla, 'redirectURI', adminTeslaSeed.redirectURI) || changed;
+  changed = fillIfMissing(existing.settings.tesla, 'audience', adminTeslaSeed.audience) || changed;
+  changed = fillIfMissing(existing.settings.tesla, 'fleetApiBase', adminTeslaSeed.fleetApiBase) || changed;
+  changed = fillIfMissing(existing.settings.kakao, 'restAPIKey', adminKakaoSeed.restAPIKey) || changed;
+  changed = fillIfMissing(existing.settings.kakao, 'javaScriptKey', adminKakaoSeed.javaScriptKey) || changed;
+
+  if (changed) {
+    existing.updatedAt = new Date().toISOString();
+  }
+  return changed;
+}
+
+async function initializeAppUsers() {
+  appUsersByUsername.clear();
+  let changed = false;
+  try {
+    const raw = await fs.readFile(APP_USERS_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    const users = Array.isArray(parsed?.users) ? parsed.users : [];
+    for (const candidate of users) {
+      const normalized = normalizeLoadedUserRecord(candidate);
+      if (!normalized) continue;
+      appUsersByUsername.set(normalized.username, normalized);
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw error;
+    }
+    changed = true;
+  }
+
+  changed = ensureAdminSeedUser() || changed;
+  if (changed) {
+    await queuePersistUsers();
+  }
+}
+
+function getUserByUsername(username) {
+  const normalized = normalizeUsername(username);
+  if (!normalized) return null;
+  return appUsersByUsername.get(normalized) || null;
+}
+
+function toPublicUser(user) {
+  return {
+    username: user.username,
+    role: user.role
+  };
+}
+
+function buildUserBootstrap(req, user) {
+  const settings = user?.settings || {};
+  return {
+    backendBaseURL: resolveRequestOrigin(req),
+    backendApiToken: BACKEND_API_TOKEN || '',
+    telemetrySource: 'backend',
+    tesla: normalizeTeslaSettings(settings.tesla ?? null, defaultTeslaSettingsForUser()),
+    kakao: normalizeKakaoSettings(settings.kakao ?? null, { restAPIKey: '', javaScriptKey: '' })
+  };
+}
+
+function issueAppSession({ username, role = 'member' }) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  const nowMs = Date.now();
+  const session = {
+    token,
+    username: normalizeUsername(username),
+    role,
+    createdAt: new Date(nowMs).toISOString(),
+    lastSeenAt: new Date(nowMs).toISOString(),
+    expiresAt: new Date(nowMs + APP_AUTH_SESSION_TTL_MS).toISOString()
+  };
+  appSessions.set(token, session);
+  return session;
+}
+
+function pruneExpiredAppSessions() {
+  const nowMs = Date.now();
+  for (const [token, session] of appSessions.entries()) {
+    const expiresAtMs = Date.parse(session?.expiresAt || '');
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+      appSessions.delete(token);
+    }
+  }
+}
+
+function getAppSessionToken(req) {
+  const auth = String(req.headers.authorization || '').trim();
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+  const headerToken = String(req.headers['x-app-session'] || '').trim();
+  return bearer || headerToken;
+}
+
+function requireAppSession(req) {
+  pruneExpiredAppSessions();
+  const token = getAppSessionToken(req);
+  if (!token) {
+    return { ok: false, message: 'Unauthorized (missing app session token).' };
+  }
+  const session = appSessions.get(token);
+  if (!session) {
+    return { ok: false, message: 'Unauthorized (invalid or expired app session).' };
+  }
+  const user = getUserByUsername(session.username);
+  if (!user) {
+    appSessions.delete(token);
+    return { ok: false, message: 'Unauthorized (account not found).' };
+  }
+  session.lastSeenAt = new Date().toISOString();
+  return { ok: true, token, session, user };
+}
+
+function requireAppSessionOrRespond(req, res) {
+  const authz = requireAppSession(req);
+  if (authz.ok) {
+    return authz;
+  }
+  sendJson(res, 401, { ok: false, message: authz.message });
+  return null;
 }
 
 function inferJwtGrantType(token) {
@@ -1058,8 +1388,166 @@ async function route(req, res) {
       mode: state.mode,
       source: state.source,
       updatedAt: state.updatedAt,
-      backendTokenRequired: ENFORCE_BACKEND_API_TOKEN
+      backendTokenRequired: ENFORCE_BACKEND_API_TOKEN,
+      appAuth: {
+        enabled: true,
+        signupEnabled: true,
+        defaultAdminUsername: APP_DEFAULT_ADMIN_USERNAME,
+        userCount: appUsersByUsername.size
+      }
     });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/login') {
+    let payload = {};
+    try {
+      payload = await readJson(req);
+    } catch {
+      payload = {};
+    }
+
+    const username = normalizeUsername(payload?.username || '');
+    const password = String(payload?.password || '');
+    if (!username || !password) {
+      sendJson(res, 400, { ok: false, message: 'Missing username/password.' });
+      return;
+    }
+
+    const user = getUserByUsername(username);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Invalid credentials.' });
+      return;
+    }
+
+    const passwordOk = timingSafeEqualString(hashUserPassword(username, password), user.passwordHash);
+    if (!passwordOk) {
+      sendJson(res, 401, { ok: false, message: 'Invalid credentials.' });
+      return;
+    }
+
+    const session = issueAppSession({ username: user.username, role: user.role });
+    sendJson(res, 200, {
+      ok: true,
+      sessionToken: session.token,
+      expiresAt: session.expiresAt,
+      user: toPublicUser(user),
+      bootstrap: buildUserBootstrap(req, user)
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/signup') {
+    let payload = {};
+    try {
+      payload = await readJson(req);
+    } catch {
+      payload = {};
+    }
+
+    const username = normalizeUsername(payload?.username || '');
+    const password = String(payload?.password || '');
+    if (!isValidUsername(username)) {
+      sendJson(res, 400, { ok: false, message: 'Username must match [a-z0-9._-] and be 3-32 chars.' });
+      return;
+    }
+    if (!isValidPassword(password)) {
+      sendJson(res, 400, { ok: false, message: 'Password must be 4-128 chars.' });
+      return;
+    }
+    if (getUserByUsername(username)) {
+      sendJson(res, 409, { ok: false, message: 'Username already exists.' });
+      return;
+    }
+
+    const user = createUserRecord({
+      username,
+      password,
+      role: username === APP_DEFAULT_ADMIN_USERNAME ? 'admin' : 'member'
+    });
+    appUsersByUsername.set(user.username, user);
+    await queuePersistUsers();
+
+    const session = issueAppSession({ username: user.username, role: user.role });
+    sendJson(res, 201, {
+      ok: true,
+      sessionToken: session.token,
+      expiresAt: session.expiresAt,
+      user: toPublicUser(user),
+      bootstrap: buildUserBootstrap(req, user)
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/auth/me') {
+    const authz = requireAppSessionOrRespond(req, res);
+    if (!authz) {
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      user: toPublicUser(authz.user),
+      session: {
+        createdAt: authz.session.createdAt,
+        lastSeenAt: authz.session.lastSeenAt,
+        expiresAt: authz.session.expiresAt
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/auth/bootstrap') {
+    const authz = requireAppSessionOrRespond(req, res);
+    if (!authz) {
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      bootstrap: buildUserBootstrap(req, authz.user)
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/keys') {
+    const authz = requireAppSessionOrRespond(req, res);
+    if (!authz) {
+      return;
+    }
+
+    let payload = {};
+    try {
+      payload = await readJson(req);
+    } catch {
+      payload = {};
+    }
+
+    const currentTesla = normalizeTeslaSettings(authz.user.settings?.tesla ?? null, defaultTeslaSettingsForUser());
+    const currentKakao = normalizeKakaoSettings(authz.user.settings?.kakao ?? null, { restAPIKey: '', javaScriptKey: '' });
+    const nextTesla = normalizeTeslaSettings(payload?.tesla ?? null, currentTesla);
+    const nextKakao = normalizeKakaoSettings(payload?.kakao ?? null, currentKakao);
+
+    authz.user.settings = {
+      tesla: nextTesla,
+      kakao: nextKakao
+    };
+    authz.user.updatedAt = new Date().toISOString();
+    await queuePersistUsers();
+
+    sendJson(res, 200, {
+      ok: true,
+      user: toPublicUser(authz.user),
+      bootstrap: buildUserBootstrap(req, authz.user)
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
+    const authz = requireAppSessionOrRespond(req, res);
+    if (!authz) {
+      return;
+    }
+    appSessions.delete(authz.token);
+    sendJson(res, 200, { ok: true });
     return;
   }
 
@@ -1081,7 +1569,7 @@ async function route(req, res) {
           ETag: etag,
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token'
+          'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token,X-App-Session,X-Api-Key'
         });
         res.end();
         return;
@@ -1095,7 +1583,7 @@ async function route(req, res) {
         ETag: etag,
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token'
+        'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Backend-Token,X-App-Session,X-Api-Key'
       });
       res.end(raw);
     } catch (error) {
@@ -1410,6 +1898,8 @@ async function route(req, res) {
   });
 }
 
+await initializeAppUsers();
+
 if (USE_SIMULATOR) {
   setInterval(tickSimulator, 1000).unref();
 } else if (POLL_ENABLED) {
@@ -1422,6 +1912,8 @@ if (USE_SIMULATOR) {
     }
   }, POLL_INTERVAL_MS).unref();
 }
+
+setInterval(pruneExpiredAppSessions, 60_000).unref();
 
 const server = http.createServer((req, res) => {
   route(req, res).catch((error) => {
@@ -1436,6 +1928,9 @@ server.listen(PORT, HOST, () => {
   console.log(`[tesla-subdash-backend] listening on http://${HOST}:${PORT}`);
   console.log(`[tesla-subdash-backend] mode=${state.mode} pollEnabled=${POLL_ENABLED}`);
   console.log(`[tesla-subdash-backend] backendAuth=${ENFORCE_BACKEND_API_TOKEN ? 'required' : 'optional'} token=${BACKEND_API_TOKEN ? 'set' : 'missing'}`);
+  console.log(
+    `[tesla-subdash-backend] appAuth=enabled signup=on users=${appUsersByUsername.size} defaultAdmin=${APP_DEFAULT_ADMIN_USERNAME} sessionTtlMs=${APP_AUTH_SESSION_TTL_MS}`
+  );
   console.log(
     `[tesla-subdash-backend] userToken=${TESLA_USER_ACCESS_TOKEN ? 'set' : 'missing'} configuredVin=${
       TESLA_VIN || '(auto)'
