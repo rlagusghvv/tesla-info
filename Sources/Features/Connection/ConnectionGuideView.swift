@@ -50,6 +50,9 @@ struct ConnectionGuideView: View {
         "http://172.20.10.3:8787",
         "http://127.0.0.1:8787"
     ]
+    // Product decision: keep telemetry source fixed to Direct Fleet in app UI
+    // to avoid accidental Backend selection and command failures.
+    private let selectableTelemetrySources: [TelemetrySource] = [.directFleet]
 
     var body: some View {
         ZStack {
@@ -98,12 +101,11 @@ struct ConnectionGuideView: View {
                     speedCameraDatasetPanel
 
                     Button {
-                        let source = AppConfig.telemetrySource
-                        if source == .backend || teslaAuth.isSignedIn {
+                        if teslaAuth.isSignedIn {
                             router.enterCarMode(reason: .manualShortcut)
                             dismiss()
                         } else {
-                            teslaAuth.statusMessage = "Please connect Tesla first, or switch Telemetry Source to Backend."
+                            teslaAuth.statusMessage = "Please connect Tesla first."
                         }
                     } label: {
                         Label("Start Car Mode", systemImage: "car.fill")
@@ -136,6 +138,10 @@ struct ConnectionGuideView: View {
         }
         .onAppear {
             selectedTelemetrySource = AppConfig.telemetrySource
+            if selectedTelemetrySource == .backend {
+                selectedTelemetrySource = .directFleet
+                AppConfig.setTelemetrySource(.directFleet)
+            }
             backendURLText = AppConfig.backendBaseURLString
             backendAPITokenText = AppConfig.backendAPIToken
             syncTeslaDraftFromStore()
@@ -403,7 +409,7 @@ struct ConnectionGuideView: View {
                 .font(.system(size: 24, weight: .bold, design: .rounded))
 
             HStack(spacing: 10) {
-                ForEach(TelemetrySource.allCases, id: \.rawValue) { source in
+                ForEach(selectableTelemetrySources, id: \.rawValue) { source in
                     Button(source.title) {
                         selectedTelemetrySource = source
                         AppConfig.setTelemetrySource(source)
@@ -421,78 +427,9 @@ struct ConnectionGuideView: View {
                 }
             }
 
-            if selectedTelemetrySource == .backend {
-                TextField("Backend URL", text: $backendURLText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-
-                HStack(spacing: 10) {
-                    Group {
-                        if showBackendToken {
-                            TextField("Backend API Token", text: $backendAPITokenText)
-                        } else {
-                            SecureField("Backend API Token", text: $backendAPITokenText)
-                        }
-                    }
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-
-                    Button(showBackendToken ? "Hide" : "Show") {
-                        showBackendToken.toggle()
-                    }
-                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
-                    .frame(width: 90)
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(quickBackendCandidates, id: \.self) { candidate in
-                            Button(shortBackendLabel(candidate)) {
-                                applyBackendURLAndSave(candidate)
-                            }
-                            .buttonStyle(SecondaryCarButtonStyle(fontSize: 14, height: 44, cornerRadius: 12))
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-
-                HStack(spacing: 10) {
-                    Button("Save URL") {
-                        saveBackendURL()
-                    }
-                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
-
-                    Button("Save Token") {
-                        saveBackendToken()
-                    }
-                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
-
-                    Button(isTestingBackend ? "Testing..." : "Test Backend") {
-                        testBackendConnection()
-                    }
-                    .disabled(isTestingBackend)
-                    .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
-                }
-
-                Button(isDetectingBackend ? "Detecting..." : "Auto Detect Backend") {
-                    autoDetectBackend()
-                }
-                .disabled(isDetectingBackend)
-                .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
-
-                Text("Use this mode for Fleet backend. If your backend enforces auth, set Backend API Token.")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Direct Fleet mode uses Tesla OAuth in this app.")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-            }
+            Text("Direct Fleet mode only. Backend telemetry selection is disabled to prevent accidental errors.")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
