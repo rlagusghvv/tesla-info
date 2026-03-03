@@ -453,14 +453,31 @@ function toPublicUser(user) {
   };
 }
 
+function resolveAdminSeedSettings() {
+  const adminUser = appUsersByUsername.get(APP_DEFAULT_ADMIN_USERNAME) || null;
+  const adminTesla = normalizeTeslaSettings(adminUser?.settings?.tesla ?? null, defaultTeslaSettingsForAdminSeed());
+  const adminKakao = normalizeKakaoSettings(
+    adminUser?.settings?.kakao ?? null,
+    {
+      restAPIKey: KAKAO_REST_API_KEY,
+      javaScriptKey: KAKAO_JAVASCRIPT_KEY
+    }
+  );
+  return { adminTesla, adminKakao };
+}
+
 function buildUserBootstrap(req, user) {
   const settings = user?.settings || {};
+  const isAdmin = String(user?.role || '').toLowerCase() === 'admin';
+  const { adminTesla, adminKakao } = resolveAdminSeedSettings();
+  const teslaSource = isAdmin ? settings.tesla ?? null : adminTesla;
+  const kakaoSource = settings.kakao ?? null;
   return {
     backendBaseURL: resolveRequestOrigin(req),
     backendApiToken: BACKEND_API_TOKEN || '',
     telemetrySource: 'backend',
-    tesla: normalizeTeslaSettings(settings.tesla ?? null, defaultTeslaSettingsForUser()),
-    kakao: normalizeKakaoSettings(settings.kakao ?? null, { restAPIKey: '', javaScriptKey: '' })
+    tesla: normalizeTeslaSettings(teslaSource, adminTesla),
+    kakao: normalizeKakaoSettings(kakaoSource, isAdmin ? adminKakao : { restAPIKey: '', javaScriptKey: '' })
   };
 }
 
@@ -1523,8 +1540,9 @@ async function route(req, res) {
 
     const currentTesla = normalizeTeslaSettings(authz.user.settings?.tesla ?? null, defaultTeslaSettingsForUser());
     const currentKakao = normalizeKakaoSettings(authz.user.settings?.kakao ?? null, { restAPIKey: '', javaScriptKey: '' });
-    const nextTesla = normalizeTeslaSettings(payload?.tesla ?? null, currentTesla);
+    const nextTeslaRequested = normalizeTeslaSettings(payload?.tesla ?? null, currentTesla);
     const nextKakao = normalizeKakaoSettings(payload?.kakao ?? null, currentKakao);
+    const nextTesla = authz.user.role === 'admin' ? nextTeslaRequested : currentTesla;
 
     authz.user.settings = {
       tesla: nextTesla,

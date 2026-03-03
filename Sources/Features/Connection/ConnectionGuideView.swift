@@ -516,139 +516,167 @@ struct ConnectionGuideView: View {
                     .foregroundStyle(.secondary)
             }
 
-            TextField("Client ID", text: $teslaClientIdText)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            if adminSession.isAdmin {
+                TextField("Client ID", text: $teslaClientIdText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
 
-            SecureField("Client Secret", text: $teslaClientSecretText)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                SecureField("Client Secret", text: $teslaClientSecretText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
 
-            TextField("Redirect URI", text: $teslaRedirectURIText)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
+                TextField("Redirect URI", text: $teslaRedirectURIText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
 
-            DisclosureGroup("Advanced (Audience / Fleet API Base)", isExpanded: $showAdvancedTesla) {
-                VStack(alignment: .leading, spacing: 10) {
-                    TextField("Audience", text: $teslaAudienceText)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
+                DisclosureGroup("Advanced (Audience / Fleet API Base)", isExpanded: $showAdvancedTesla) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Audience", text: $teslaAudienceText)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
 
-                    TextField("Fleet API Base", text: $teslaFleetApiBaseText)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
+                        TextField("Fleet API Base", text: $teslaFleetApiBaseText)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
 
-                    Text("Scopes requested: \(TeslaConstants.scopes)")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
+                        Text("Scopes requested: \(TeslaConstants.scopes)")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.top, 8)
+                }
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+
+                DisclosureGroup("Manual Finish (if Open App fails)", isExpanded: $showManualLogin) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("OAuth Code", text: $teslaManualCodeText)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+
+                        TextField("State", text: $teslaManualStateText)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+
+                        Button(teslaAuth.isBusy ? "Working..." : "Exchange Code") {
+                            syncTeslaDraftToStore(includeManual: true)
+                            teslaAuth.finishLoginManually()
+                        }
+                        .disabled(teslaAuth.isBusy)
+                        .buttonStyle(SecondaryCarButtonStyle())
+                        .frame(height: 70)
+                    }
+                    .padding(.top, 8)
+                }
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        Button("Save") {
+                            syncTeslaDraftToStore()
+                            teslaAuth.saveConfig()
+                            syncTeslaKeysToServer(successMessage: "Tesla 설정 저장 완료")
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle())
+
+                        Button(teslaAuth.isBusy ? "Working..." : (teslaAuth.isSignedIn ? "Reconnect" : "Connect")) {
+                            beginTeslaConnectFlow(syncDraft: true)
+                        }
+                        .disabled(teslaAuth.isBusy)
+                        .buttonStyle(SecondaryCarButtonStyle())
+
+                        Button("Sign Out") {
+                            teslaAuth.signOut()
+                        }
+                        .buttonStyle(SecondaryCarButtonStyle())
+                    }
+
+                    HStack(spacing: 10) {
+                        Button(isTestingTesla ? "Testing..." : "Test Vehicles") {
+                            testTeslaConnection()
+                        }
+                        .disabled(isTestingTesla)
+                        .buttonStyle(SecondaryCarButtonStyle())
+
+                        Button(isTestingSnapshot ? "Testing..." : "Test Snapshot") {
+                            testTeslaSnapshot()
+                        }
+                        .disabled(isTestingSnapshot)
+                        .buttonStyle(SecondaryCarButtonStyle())
+
+                        Button(isTestingFleetStatus ? "Testing..." : "Test Fleet Status") {
+                            testTeslaFleetStatus()
+                        }
+                        .disabled(isTestingFleetStatus)
+                        .buttonStyle(SecondaryCarButtonStyle())
+                    }
+                }
+                .frame(minHeight: 84)
+
+                DisclosureGroup("Diagnostics (token / claims)", isExpanded: $showTeslaDiagnostics) {
+                    let diag = teslaAuth.getTokenDiagnostics()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Access token: \(diag.accessTokenMasked)")
+                        Text("Refresh token: \(diag.refreshTokenPresent ? "present" : "missing")")
+                        Text("ExpiresAt: \(diag.expiresAtISO8601.isEmpty ? "(missing)" : diag.expiresAtISO8601)")
+                        Text("JWT aud: \(diag.jwtAudience)")
+                        Text("JWT scopes: \(diag.jwtScopes)")
+                    }
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+                }
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+            } else {
+                Text("Tesla API 설정은 관리자 계정에서 관리됩니다. 회원은 연결/재연결만 진행하면 됩니다.")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                let missingTeslaConfig = teslaAuth.clientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    teslaAuth.redirectURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if missingTeslaConfig {
+                    Text("관리자 Tesla 설정이 아직 비어 있습니다. 관리자(admin) 계정에서 Tesla 키를 먼저 저장해 주세요.")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.top, 8)
-            }
-            .font(.system(size: 16, weight: .bold, design: .rounded))
-            .foregroundStyle(.secondary)
 
-            DisclosureGroup("Manual Finish (if Open App fails)", isExpanded: $showManualLogin) {
-                VStack(alignment: .leading, spacing: 10) {
-                    TextField("OAuth Code", text: $teslaManualCodeText)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-
-                    TextField("State", text: $teslaManualStateText)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-
-                    Button(teslaAuth.isBusy ? "Working..." : "Exchange Code") {
-                        syncTeslaDraftToStore(includeManual: true)
-                        teslaAuth.finishLoginManually()
-                    }
-                    .disabled(teslaAuth.isBusy)
-                    .buttonStyle(SecondaryCarButtonStyle())
-                    .frame(height: 70)
-                }
-                .padding(.top, 8)
-            }
-            .font(.system(size: 16, weight: .bold, design: .rounded))
-            .foregroundStyle(.secondary)
-
-            VStack(spacing: 10) {
                 HStack(spacing: 10) {
-                    Button("Save") {
-                        syncTeslaDraftToStore()
-                        teslaAuth.saveConfig()
-                        syncAccountKeysToServer(successMessage: "Tesla 설정 저장 완료")
+                    Button(teslaAuth.isBusy ? "Working..." : (teslaAuth.isSignedIn ? "Reconnect Tesla" : "Connect Tesla")) {
+                        beginTeslaConnectFlow(syncDraft: false)
                     }
+                    .disabled(teslaAuth.isBusy || missingTeslaConfig)
                     .buttonStyle(SecondaryCarButtonStyle())
 
-                    Button(teslaAuth.isBusy ? "Working..." : "Connect") {
-                        syncTeslaDraftToStore()
-                        teslaAuth.saveConfig()
-                        guard let url = teslaAuth.makeAuthorizeURL() else { return }
-                        openURL(url)
-                    }
-                    .disabled(teslaAuth.isBusy)
-                    .buttonStyle(SecondaryCarButtonStyle())
-
-                    Button("Sign Out") {
+                    Button("Disconnect") {
                         teslaAuth.signOut()
                     }
+                    .disabled(!teslaAuth.isSignedIn)
                     .buttonStyle(SecondaryCarButtonStyle())
                 }
-
-                HStack(spacing: 10) {
-                    Button(isTestingTesla ? "Testing..." : "Test Vehicles") {
-                        testTeslaConnection()
-                    }
-                    .disabled(isTestingTesla)
-                    .buttonStyle(SecondaryCarButtonStyle())
-
-                    Button(isTestingSnapshot ? "Testing..." : "Test Snapshot") {
-                        testTeslaSnapshot()
-                    }
-                    .disabled(isTestingSnapshot)
-                    .buttonStyle(SecondaryCarButtonStyle())
-
-                    Button(isTestingFleetStatus ? "Testing..." : "Test Fleet Status") {
-                        testTeslaFleetStatus()
-                    }
-                    .disabled(isTestingFleetStatus)
-                    .buttonStyle(SecondaryCarButtonStyle())
-                }
+                .frame(minHeight: 70)
             }
-            .frame(minHeight: 84)
-
-            DisclosureGroup("Diagnostics (token / claims)", isExpanded: $showTeslaDiagnostics) {
-                let diag = teslaAuth.getTokenDiagnostics()
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Access token: \(diag.accessTokenMasked)")
-                    Text("Refresh token: \(diag.refreshTokenPresent ? "present" : "missing")")
-                    Text("ExpiresAt: \(diag.expiresAtISO8601.isEmpty ? "(missing)" : diag.expiresAtISO8601)")
-                    Text("JWT aud: \(diag.jwtAudience)")
-                    Text("JWT scopes: \(diag.jwtScopes)")
-                }
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .padding(.top, 8)
-            }
-            .font(.system(size: 16, weight: .bold, design: .rounded))
-            .foregroundStyle(.secondary)
 
             if let message = teslaAuth.statusMessage {
                 Text(message)
@@ -675,6 +703,12 @@ struct ConnectionGuideView: View {
                     .frame(width: 10, height: 10)
                 Text(kakaoConfig.restAPIKey.isEmpty ? "REST Key Missing" : "REST Key Set")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+
+            if !adminSession.isAdmin {
+                Text("카카오 호출 한도 분리를 위해 계정별 REST/JS 키를 저장해 주세요.")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
             }
 
@@ -729,7 +763,7 @@ struct ConnectionGuideView: View {
 
             Button("Save") {
                 kakaoConfig.save()
-                syncAccountKeysToServer(successMessage: "Kakao 설정 저장 완료")
+                syncKakaoKeysToServer(successMessage: "Kakao 설정 저장 완료")
             }
             .buttonStyle(SecondaryCarButtonStyle())
             .frame(height: 70)
@@ -810,17 +844,51 @@ struct ConnectionGuideView: View {
         }
     }
 
-    private func syncAccountKeysToServer(successMessage: String) {
+    private func beginTeslaConnectFlow(syncDraft: Bool) {
+        if syncDraft {
+            syncTeslaDraftToStore()
+            teslaAuth.saveConfig()
+        }
+
+        let missingTeslaConfig = teslaAuth.clientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            teslaAuth.redirectURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if missingTeslaConfig {
+            teslaAuth.statusMessage = "Tesla 설정이 비어 있습니다. 관리자 계정에서 Tesla 키를 먼저 저장해 주세요."
+            return
+        }
+
+        guard let url = teslaAuth.makeAuthorizeURL() else { return }
+        openURL(url)
+    }
+
+    private func syncTeslaKeysToServer(successMessage: String) {
+        guard adminSession.isAdmin else {
+            teslaAuth.statusMessage = "키 저장은 관리자(admin) 계정에서만 가능합니다."
+            return
+        }
+
         Task {
             do {
-                try await adminSession.syncUserKeysToBackend(
-                    teslaClientId: teslaAuth.clientId,
-                    teslaClientSecret: teslaAuth.clientSecret,
-                    teslaRedirectURI: teslaAuth.redirectURI,
-                    teslaAudience: teslaAuth.audience,
-                    teslaFleetApiBase: teslaAuth.fleetApiBase,
-                    kakaoRestAPIKey: kakaoConfig.restAPIKey,
-                    kakaoJavaScriptKey: kakaoConfig.javaScriptKey
+                try await adminSession.syncTeslaKeysToBackend(
+                    clientId: teslaAuth.clientId,
+                    clientSecret: teslaAuth.clientSecret,
+                    redirectURI: teslaAuth.redirectURI,
+                    audience: teslaAuth.audience,
+                    fleetApiBase: teslaAuth.fleetApiBase
+                )
+                teslaAuth.statusMessage = "\(successMessage) (계정 동기화 완료)"
+            } catch {
+                teslaAuth.statusMessage = "로컬 저장됨 / 서버 동기화 실패: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func syncKakaoKeysToServer(successMessage: String) {
+        Task {
+            do {
+                try await adminSession.syncKakaoKeysToBackend(
+                    restAPIKey: kakaoConfig.restAPIKey,
+                    javaScriptKey: kakaoConfig.javaScriptKey
                 )
                 teslaAuth.statusMessage = "\(successMessage) (계정 동기화 완료)"
             } catch {

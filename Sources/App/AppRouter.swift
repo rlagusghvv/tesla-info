@@ -45,7 +45,12 @@ final class AdminSessionStore: ObservableObject {
     @Published var isBusy: Bool = false
     @Published var statusMessage: String?
     @Published var username: String = "admin"
+    @Published private(set) var userRole: String = "member"
     @Published var backendURL: String = AppConfig.backendBaseURLString
+
+    var isAdmin: Bool {
+        userRole == "admin"
+    }
 
     private let session: URLSession
     private let encoder = JSONEncoder()
@@ -61,6 +66,10 @@ final class AdminSessionStore: ObservableObject {
         if let storedUsername = KeychainStore.getString(Keys.username)?.trimmingCharacters(in: .whitespacesAndNewlines),
            !storedUsername.isEmpty {
             username = storedUsername
+        }
+        if let storedRole = KeychainStore.getString(Keys.userRole)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !storedRole.isEmpty {
+            userRole = normalizeUserRole(storedRole)
         }
 
         if let token = loadSessionToken(), !token.isEmpty {
@@ -110,9 +119,11 @@ final class AdminSessionStore: ObservableObject {
                 throw AdminSessionError.server("세션 토큰이 비어 있습니다.")
             }
 
-            try KeychainStore.setString(trimmedUsername, for: Keys.username)
+            let resolvedUsername = envelope.user?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? trimmedUsername
+            try KeychainStore.setString(resolvedUsername, for: Keys.username)
             try KeychainStore.setString(sessionToken, for: Keys.sessionToken)
             try AppConfig.setBackendOverride(urlString: baseURL.absoluteString)
+            applyAuthenticatedUser(envelope.user, fallbackUsername: resolvedUsername)
 
             if let bootstrap = envelope.bootstrap {
                 try applyBootstrap(bootstrap, fallbackBaseURL: baseURL)
@@ -120,7 +131,7 @@ final class AdminSessionStore: ObservableObject {
                 try await fetchAndApplyBootstrap(baseURL: baseURL, sessionToken: sessionToken)
             }
 
-            username = trimmedUsername
+            username = resolvedUsername
             backendURL = baseURL.absoluteString
             isLoggedIn = true
             statusMessage = "로그인 성공"
@@ -176,9 +187,11 @@ final class AdminSessionStore: ObservableObject {
                 throw AdminSessionError.server("세션 토큰이 비어 있습니다.")
             }
 
-            try KeychainStore.setString(trimmedUsername, for: Keys.username)
+            let resolvedUsername = envelope.user?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? trimmedUsername
+            try KeychainStore.setString(resolvedUsername, for: Keys.username)
             try KeychainStore.setString(sessionToken, for: Keys.sessionToken)
             try AppConfig.setBackendOverride(urlString: baseURL.absoluteString)
+            applyAuthenticatedUser(envelope.user, fallbackUsername: resolvedUsername)
 
             if let bootstrap = envelope.bootstrap {
                 try applyBootstrap(bootstrap, fallbackBaseURL: baseURL)
@@ -186,7 +199,7 @@ final class AdminSessionStore: ObservableObject {
                 try await fetchAndApplyBootstrap(baseURL: baseURL, sessionToken: sessionToken)
             }
 
-            username = trimmedUsername
+            username = resolvedUsername
             backendURL = baseURL.absoluteString
             isLoggedIn = true
             statusMessage = "회원가입 완료"
@@ -196,14 +209,9 @@ final class AdminSessionStore: ObservableObject {
         }
     }
 
-    func syncUserKeysToBackend(
-        teslaClientId: String,
-        teslaClientSecret: String,
-        teslaRedirectURI: String,
-        teslaAudience: String,
-        teslaFleetApiBase: String,
-        kakaoRestAPIKey: String,
-        kakaoJavaScriptKey: String
+    private func syncUserKeysToBackend(
+        tesla: AuthTeslaKeysUpdatePayload? = nil,
+        kakao: AuthKakaoKeysUpdatePayload? = nil
     ) async throws {
         guard let token = loadSessionToken(), !token.isEmpty else {
             throw AdminSessionError.server("로그인이 필요합니다.")
@@ -213,19 +221,11 @@ final class AdminSessionStore: ObservableObject {
             throw AdminSessionError.server("백엔드 URL 형식이 올바르지 않습니다.")
         }
 
-        let payload = AuthUserKeysUpdateRequest(
-            tesla: AuthTeslaKeysUpdatePayload(
-                clientId: teslaClientId,
-                clientSecret: teslaClientSecret,
-                redirectURI: teslaRedirectURI,
-                audience: teslaAudience,
-                fleetApiBase: teslaFleetApiBase
-            ),
-            kakao: AuthKakaoKeysUpdatePayload(
-                restAPIKey: kakaoRestAPIKey,
-                javaScriptKey: kakaoJavaScriptKey
-            )
-        )
+        guard tesla != nil || kakao != nil else {
+            throw AdminSessionError.server("업데이트할 키가 없습니다.")
+        }
+
+        let payload = AuthUserKeysUpdateRequest(tesla: tesla, kakao: kakao)
         let body = try encoder.encode(payload)
         let (data, http) = try await request(
             baseURL: baseURL,
@@ -241,6 +241,38 @@ final class AdminSessionStore: ObservableObject {
         if let bootstrap = envelope.bootstrap {
             try applyBootstrap(bootstrap, fallbackBaseURL: baseURL)
         }
+    }
+
+    func syncTeslaKeysToBackend(
+        clientId: String,
+        clientSecret: String,
+        redirectURI: String,
+        audience: String,
+        fleetApiBase: String
+    ) async throws {
+        try await syncUserKeysToBackend(
+            tesla: AuthTeslaKeysUpdatePayload(
+                clientId: clientId,
+                clientSecret: clientSecret,
+                redirectURI: redirectURI,
+                audience: audience,
+                fleetApiBase: fleetApiBase
+            ),
+            kakao: nil
+        )
+    }
+
+    func syncKakaoKeysToBackend(
+        restAPIKey: String,
+        javaScriptKey: String
+    ) async throws {
+        try await syncUserKeysToBackend(
+            tesla: nil,
+            kakao: AuthKakaoKeysUpdatePayload(
+                restAPIKey: restAPIKey,
+                javaScriptKey: javaScriptKey
+            )
+        )
     }
 
     func logout() {
@@ -287,6 +319,7 @@ final class AdminSessionStore: ObservableObject {
             guard (200 ... 299).contains(http.statusCode), envelope.ok else {
                 throw AdminSessionError.server(envelope.message ?? "세션이 만료되었습니다.")
             }
+            applyAuthenticatedUser(envelope.user, fallbackUsername: username)
             try await fetchAndApplyBootstrap(baseURL: baseURL, sessionToken: token)
             isLoggedIn = true
         } catch {
@@ -399,15 +432,32 @@ final class AdminSessionStore: ObservableObject {
 
     private func clearSession(localOnly: Bool) {
         KeychainStore.delete(Keys.sessionToken)
+        KeychainStore.delete(Keys.userRole)
         isLoggedIn = false
+        userRole = "member"
         if !localOnly {
             statusMessage = nil
         }
     }
 
+    private func applyAuthenticatedUser(_ user: AuthUserSummary?, fallbackUsername: String) {
+        let resolvedUsername = user?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? fallbackUsername
+        let resolvedRole = normalizeUserRole(user?.role)
+        username = resolvedUsername
+        userRole = resolvedRole
+        try? KeychainStore.setString(resolvedUsername, for: Keys.username)
+        try? KeychainStore.setString(resolvedRole, for: Keys.userRole)
+    }
+
+    private func normalizeUserRole(_ raw: String?) -> String {
+        let normalized = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "admin" ? "admin" : "member"
+    }
+
     private enum Keys {
         static let username = "app.admin.username"
         static let sessionToken = "app.admin.session_token"
+        static let userRole = "app.admin.user_role"
     }
 }
 
@@ -422,8 +472,8 @@ private struct AuthSignupRequest: Encodable {
 }
 
 private struct AuthUserKeysUpdateRequest: Encodable {
-    let tesla: AuthTeslaKeysUpdatePayload
-    let kakao: AuthKakaoKeysUpdatePayload
+    let tesla: AuthTeslaKeysUpdatePayload?
+    let kakao: AuthKakaoKeysUpdatePayload?
 }
 
 private struct AuthTeslaKeysUpdatePayload: Encodable {
@@ -442,12 +492,14 @@ private struct AuthKakaoKeysUpdatePayload: Encodable {
 private struct AuthStatusEnvelope: Decodable {
     let ok: Bool
     let message: String?
+    let user: AuthUserSummary?
 }
 
 private struct AuthLoginEnvelope: Decodable {
     let ok: Bool
     let message: String?
     let sessionToken: String?
+    let user: AuthUserSummary?
     let bootstrap: AuthBootstrapPayload?
 }
 
@@ -455,6 +507,11 @@ private struct AuthBootstrapEnvelope: Decodable {
     let ok: Bool
     let message: String?
     let bootstrap: AuthBootstrapPayload?
+}
+
+private struct AuthUserSummary: Decodable {
+    let username: String
+    let role: String
 }
 
 private struct AuthBootstrapPayload: Decodable {
