@@ -362,39 +362,76 @@ actor TeslaFleetService {
     }
 
     private func resolveVehicle() async throws -> TeslaVehicleSummary {
-        if let cachedVehicle {
-            return cachedVehicle
-        }
+        let cachedVin = (cachedVehicle?.vin ?? KeychainStore.getString(Keys.selectedVin) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cachedId: Int64? = {
+            if let id = cachedVehicle?.id { return id }
+            if let idText = KeychainStore.getString(Keys.selectedVehicleId),
+               let id = Int64(idText),
+               id > 0 {
+                return id
+            }
+            return nil
+        }()
 
-        if let vin = KeychainStore.getString(Keys.selectedVin), !vin.isEmpty {
-            cachedVehicle = TeslaVehicleSummary(vin: vin, displayName: "(Vehicle)", state: "unknown")
-            return cachedVehicle!
+        do {
+            let resolved = try await resolveVehicleFromFleet(preferredVin: cachedVin, preferredId: cachedId)
+            cachedVehicle = resolved
+            persistResolvedVehicle(resolved)
+            return resolved
+        } catch {
+            if let cachedVehicle {
+                return cachedVehicle
+            }
+            if !cachedVin.isEmpty {
+                let fallback = TeslaVehicleSummary(vin: cachedVin, displayName: "(Vehicle)", state: "unknown")
+                cachedVehicle = fallback
+                return fallback
+            }
+            if let cachedId {
+                let fallback = TeslaVehicleSummary(id: cachedId, vin: "", displayName: "(Vehicle)", state: "unknown")
+                cachedVehicle = fallback
+                return fallback
+            }
+            throw error
         }
+    }
 
-        if let idText = KeychainStore.getString(Keys.selectedVehicleId),
-           let id = Int64(idText),
-           id > 0 {
-            cachedVehicle = TeslaVehicleSummary(id: id, vin: "", displayName: "(Vehicle)", state: "unknown")
-            return cachedVehicle!
-        }
-
+    private func resolveVehicleFromFleet(preferredVin: String, preferredId: Int64?) async throws -> TeslaVehicleSummary {
         let data = try await request(path: "/api/1/vehicles", method: "GET")
         let decoded = try decoder.decode(TeslaVehiclesEnvelope.self, from: data)
         let list = decoded.response ?? []
-        guard let first = list.first, !first.vin.isEmpty else {
+        guard !list.isEmpty else {
             throw TeslaFleetError.noVehicles
         }
 
-        cachedVehicle = first
+        if !preferredVin.isEmpty,
+           let matched = list.first(where: { $0.vin.caseInsensitiveCompare(preferredVin) == .orderedSame }) {
+            return matched
+        }
+        if let preferredId,
+           let matched = list.first(where: { $0.id == preferredId }) {
+            return matched
+        }
+
+        if let withVin = list.first(where: { !$0.vin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return withVin
+        }
+        return list[0]
+    }
+
+    private func persistResolvedVehicle(_ vehicle: TeslaVehicleSummary) {
         do {
-            if let id = first.id {
+            if let id = vehicle.id {
                 try KeychainStore.setString(String(id), for: Keys.selectedVehicleId)
             }
-            try KeychainStore.setString(first.vin, for: Keys.selectedVin)
+            let vin = vehicle.vin.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !vin.isEmpty {
+                try KeychainStore.setString(vin, for: Keys.selectedVin)
+            }
         } catch {
             // Non-fatal; just skip caching.
         }
-        return first
     }
 
     private func request(path: String, method: String, queryItems: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
@@ -1066,6 +1103,17 @@ private struct TeslaVehicleSummary: Decodable {
         self.vin = vin
         self.displayName = displayName
         self.state = state
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(Int64.self, forKey: .id)
+        vin = (try container.decodeIfPresent(String.self, forKey: .vin) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        displayName = (try container.decodeIfPresent(String.self, forKey: .displayName) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        state = (try container.decodeIfPresent(String.self, forKey: .state) ?? "unknown")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var identifier: String {

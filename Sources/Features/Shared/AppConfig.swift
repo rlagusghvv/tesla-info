@@ -83,16 +83,15 @@ enum AppConfig {
     }
 
     static var telemetrySource: TelemetrySource {
-        if let raw = UserDefaults.standard.string(forKey: telemetrySourceKey),
-           let source = TelemetrySource(rawValue: raw) {
-            return source
-        }
-        // Default to direct Fleet for lowest latency and simpler ops (no backend/tunnel required).
+        // Product policy: app telemetry is Direct Fleet only.
+        // Keep backend URL/token for other endpoints (e.g. speed camera dataset),
+        // but never route vehicle polling/commands through backend.
         return .directFleet
     }
 
     static func setTelemetrySource(_ source: TelemetrySource) {
-        UserDefaults.standard.set(source.rawValue, forKey: telemetrySourceKey)
+        _ = source // Backward-compatible API surface; backend selection is intentionally ignored.
+        UserDefaults.standard.set(TelemetrySource.directFleet.rawValue, forKey: telemetrySourceKey)
     }
 
     static func setBackendOverride(urlString: String) throws {
@@ -238,4 +237,3 @@ func appLog(_ category: AppLogCategory, _ message: String, level: AppLogLevel = 
         await AppLogStore.shared.log(level, category, message)
     }
 }
-

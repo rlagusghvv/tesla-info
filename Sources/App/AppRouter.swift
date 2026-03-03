@@ -366,10 +366,8 @@ final class AdminSessionStore: ObservableObject {
         let backendToken = bootstrap.backendApiToken.trimmingCharacters(in: .whitespacesAndNewlines)
         try AppConfig.setBackendAPIToken(backendToken)
 
-        let telemetrySource = (bootstrap.telemetrySource ?? "").lowercased()
-        if telemetrySource == TelemetrySource.backend.rawValue {
-            AppConfig.setTelemetrySource(.backend)
-        }
+        _ = bootstrap.telemetrySource
+        AppConfig.setTelemetrySource(.directFleet)
 
         let tesla = TeslaAuthStore.shared
         tesla.clientId = bootstrap.tesla.clientId
