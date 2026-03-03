@@ -485,7 +485,7 @@ struct ConnectionGuideView: View {
                 .disabled(isDetectingBackend)
                 .buttonStyle(SecondaryCarButtonStyle(fontSize: 18, height: 56, cornerRadius: 16))
 
-                Text("Use this mode for TeslaMate/local backend. If your backend enforces auth, set Backend API Token.")
+                Text("Use this mode for Fleet backend. If your backend enforces auth, set Backend API Token.")
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
             } else {
