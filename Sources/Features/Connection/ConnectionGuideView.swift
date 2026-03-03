@@ -69,6 +69,7 @@ struct ConnectionGuideView: View {
                         .font(.system(size: 44, weight: .heavy, design: .rounded))
 
                     statusBadge
+                    accountPanel
                     audioTestPanel
                     if AppConfig.iapEnabled {
                         subscriptionPanel
@@ -183,6 +184,48 @@ struct ConnectionGuideView: View {
         .padding(.vertical, 10)
         .background(
             Capsule(style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+    private var accountPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Account")
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+
+            Text("Signed in as \(adminSession.username) (\(adminSession.isAdmin ? "admin" : "member"))")
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Use Log Out to switch accounts and return to the login screen.")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Log Out") {
+                teslaAuth.signOut()
+                kakaoConfig.restAPIKey = ""
+                kakaoConfig.javaScriptKey = ""
+                kakaoConfig.save()
+                adminSession.logout()
+                router.showGuide()
+            }
+            .buttonStyle(
+                SecondaryCarButtonStyle(
+                    fontSize: 18,
+                    height: 56,
+                    cornerRadius: 16,
+                    fillColor: Color.red.opacity(0.14),
+                    strokeColor: Color.red.opacity(0.42),
+                    foregroundColor: Color.red
+                )
+            )
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
         )
     }

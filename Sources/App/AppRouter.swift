@@ -57,6 +57,8 @@ final class AdminSessionStore: ObservableObject {
     private let decoder = JSONDecoder()
 
     private init() {
+        Self.migrateAuthStateIfNeeded()
+
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
         config.timeoutIntervalForResource = 20
@@ -76,6 +78,17 @@ final class AdminSessionStore: ObservableObject {
             isLoggedIn = true
             Task { await validateStoredSession() }
         }
+    }
+
+    private static func migrateAuthStateIfNeeded() {
+        let defaults = UserDefaults.standard
+        let storedVersion = defaults.integer(forKey: Keys.authStateVersion)
+        guard storedVersion < Keys.currentAuthStateVersion else { return }
+
+        // One-time migration: invalidate legacy local app sessions so users see the login gate after auth rollout.
+        KeychainStore.delete(Keys.sessionToken)
+        KeychainStore.delete(Keys.userRole)
+        defaults.set(Keys.currentAuthStateVersion, forKey: Keys.authStateVersion)
     }
 
     func login(password: String) async {
@@ -455,6 +468,8 @@ final class AdminSessionStore: ObservableObject {
     }
 
     private enum Keys {
+        static let currentAuthStateVersion = 1
+        static let authStateVersion = "app.admin.auth_state_version"
         static let username = "app.admin.username"
         static let sessionToken = "app.admin.session_token"
         static let userRole = "app.admin.user_role"

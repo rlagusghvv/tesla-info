@@ -6,6 +6,7 @@ struct TeslaSubDashApp: App {
     @StateObject private var networkMonitor = NetworkMonitor()
     @StateObject private var router = AppRouter()
     @StateObject private var teslaAuth = TeslaAuthStore.shared
+    @StateObject private var adminSession = AdminSessionStore.shared
     @StateObject private var kakaoConfig = KakaoConfigStore.shared
     @StateObject private var subscription = SubscriptionManager.shared
 
@@ -15,15 +16,18 @@ struct TeslaSubDashApp: App {
                 .environmentObject(networkMonitor)
                 .environmentObject(router)
                 .environmentObject(teslaAuth)
+                .environmentObject(adminSession)
                 .environmentObject(kakaoConfig)
                 .environmentObject(subscription)
                 .onAppear {
                     // Stability-first launch: do not auto-enter Car Mode on app start.
                     // Car Mode should start only via explicit user action (button/shortcut/deeplink).
                     consumeStartCarModeFlagIfNeeded()
+                    Task { await adminSession.refreshSession() }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     consumeStartCarModeFlagIfNeeded()
+                    Task { await adminSession.refreshSession() }
                 }
                 .onOpenURL { url in
                     if url.scheme == "myapp", (url.host?.lowercased() == "oauth") {
@@ -40,7 +44,7 @@ struct TeslaSubDashApp: App {
         let shouldLaunchCarMode = UserDefaults.standard.bool(forKey: LaunchFlags.startCarModeFromIntent)
         guard shouldLaunchCarMode else { return }
         UserDefaults.standard.set(false, forKey: LaunchFlags.startCarModeFromIntent)
-        if networkMonitor.isConnected, teslaAuth.isSignedIn {
+        if adminSession.isLoggedIn, networkMonitor.isConnected, teslaAuth.isSignedIn {
             router.enterCarMode(reason: .manualShortcut)
         } else {
             router.showGuide()
